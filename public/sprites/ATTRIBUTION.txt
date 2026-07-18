@@ -1,0 +1,12 @@
+# Sprites attribution
+
+## football-roll.png
+Source: mustitz/ballgen (examples/ball.all.png)
+https://github.com/mustitz/ballgen
+https://opengameart.org/content/soccer-ball-animation-sprites-and-3d-texture
+License: MIT / CC0
+
+## player-run-16.png
+From Eri Sesra character template pack (16x16 Run-Sheet.png)
+https://www.erisesra.com/socials
+Canvas: 24×24 frames (character ~16×16). Free for commercial/non-commercial use; credit appreciated, do not resell.

@@ -3,13 +3,16 @@
 import { useEffect, useRef } from "react";
 import { GAME_HEIGHT, GAME_WIDTH } from "@/game/constants";
 import type { GameCallbacks } from "@/game/events";
+import type { SessionSettings } from "@/game/playMode";
 
 type GameCanvasProps = GameCallbacks & {
   sessionId: number;
+  settings: SessionSettings;
 };
 
 export default function GameCanvas({
   sessionId,
+  settings,
   onTick,
   onGameOver,
 }: GameCanvasProps) {
@@ -40,7 +43,7 @@ export default function GameCanvas({
       if (cancelled || !containerRef.current) return;
 
       parent.replaceChildren();
-      game = new Phaser.Game(createGameConfig(parent, callbacks));
+      game = new Phaser.Game(createGameConfig(parent, callbacks, settings));
     })();
 
     return () => {
@@ -49,7 +52,7 @@ export default function GameCanvas({
       game = null;
       parent.replaceChildren();
     };
-  }, [sessionId]);
+  }, [sessionId, settings]);
 
   return (
     <div
