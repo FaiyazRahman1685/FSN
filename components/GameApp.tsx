@@ -50,7 +50,7 @@ export default function GameApp() {
 
   const placeholder = useMemo(() => {
     if (playMode === "multiplayer") {
-      return "Press Start — P1: ← → · P2: A D · Space: pass";
+      return "Press Start — P1: ← → + Enter · P2: A D + Space";
     }
     return "Press Start, then use ← → to dodge";
   }, [playMode]);
@@ -157,7 +157,7 @@ export default function GameApp() {
       {phase === "playing" && (
         <p className="hint">
           {isLocalCoop
-            ? "P1: ← → · P2: A D · Space: pass the ball"
+            ? "P1: ← → · Enter to pass · P2: A D · Space to pass"
             : "Left / Right arrow keys to move"}
         </p>
       )}
