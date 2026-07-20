@@ -6,6 +6,7 @@ import type { GameOverResult } from "@/game/events";
 import type { Difficulty } from "@/game/difficulty";
 import type { MultiplayerKind, PlayMode, PlayerNames } from "@/game/playMode";
 import type { GameScoreState } from "@/game/scoring";
+import { useBackgroundMusic } from "@/hooks/useBackgroundMusic";
 import BonusBoard from "./BonusBoard";
 import DeathModal from "./DeathModal";
 import RulesModal from "./RulesModal";
@@ -51,12 +52,15 @@ export default function GameApp() {
   const [gameOverResult, setGameOverResult] = useState<GameOverResult | null>(
     null,
   );
+  const [deathModalOpen, setDeathModalOpen] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
 
   const controlsLocked = phase === "playing";
   const isLocalCoop =
     activeSettings.playMode === "multiplayer" &&
     activeSettings.multiplayerKind === "local";
+
+  useBackgroundMusic(phase === "playing");
 
   const startGame = useCallback(() => {
     const playerNames: PlayerNames = {
@@ -67,6 +71,7 @@ export default function GameApp() {
     setSeconds(0);
     setScore(INITIAL_SCORE);
     setGameOverResult(null);
+    setDeathModalOpen(false);
     setActiveSettings({ playMode, multiplayerKind, difficulty, playerNames });
     setSessionId((id) => id + 1);
     setPhase("playing");
@@ -82,6 +87,7 @@ export default function GameApp() {
 
   const handleGameOver = useCallback((result: GameOverResult) => {
     setGameOverResult(result);
+    setDeathModalOpen(true);
     setSeconds(result.seconds);
     setScore((current) => ({
       ...current,
@@ -218,6 +224,12 @@ export default function GameApp() {
             </div>
           </div>
         )}
+
+        {phase === "gameover" && !deathModalOpen && (
+          <button type="button" className="game-button" onClick={startGame}>
+            Play Again
+          </button>
+        )}
       </div>
 
       <div className="canvas-wrap">
@@ -247,8 +259,9 @@ export default function GameApp() {
 
       <RulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
       <DeathModal
-        open={phase === "gameover"}
+        open={phase === "gameover" && deathModalOpen}
         result={gameOverResult}
+        onClose={() => setDeathModalOpen(false)}
         onRestart={startGame}
       />
     </div>

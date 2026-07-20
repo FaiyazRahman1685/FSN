@@ -6,37 +6,53 @@ import type { GameOverResult } from "@/game/events";
 type DeathModalProps = {
   open: boolean;
   result: GameOverResult | null;
+  onClose: () => void;
   onRestart: () => void;
 };
 
-export default function DeathModal({ open, result, onRestart }: DeathModalProps) {
+export default function DeathModal({
+  open,
+  result,
+  onClose,
+  onRestart,
+}: DeathModalProps) {
   const titleId = useId();
-  const restartRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
 
-    restartRef.current?.focus();
+    closeRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onRestart();
+      if (event.key === "Escape") onClose();
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onRestart]);
+  }, [open, onClose]);
 
   if (!open || !result) return null;
 
   return (
-    <div className="death-modal-backdrop">
+    <div className="death-modal-backdrop" onClick={onClose}>
       <div
         className="death-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
       >
         <header className="death-modal-header">
+          <button
+            ref={closeRef}
+            type="button"
+            className="death-modal-close"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
           <h2 id={titleId} className="death-modal-title">
             Game Over
           </h2>
@@ -66,12 +82,7 @@ export default function DeathModal({ open, result, onRestart }: DeathModalProps)
         </div>
 
         <footer className="death-modal-footer">
-          <button
-            ref={restartRef}
-            type="button"
-            className="game-button"
-            onClick={onRestart}
-          >
+          <button type="button" className="game-button" onClick={onRestart}>
             Play Again
           </button>
         </footer>
