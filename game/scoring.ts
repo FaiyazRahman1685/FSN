@@ -31,6 +31,7 @@ export class ScoreManager {
   private total = 0;
   private streak = 0;
   private multiplier = 1;
+  private pointsMultiplier = 1;
   private streakBonusBase = 0;
   private lastBonusAtMs = 0;
   private bonusBoard: BonusBoardState | null = null;
@@ -45,6 +46,7 @@ export class ScoreManager {
     this.total = 0;
     this.streak = 0;
     this.multiplier = 1;
+    this.pointsMultiplier = 1;
     this.streakBonusBase = 0;
     this.lastBonusAtMs = 0;
     this.bonusBoard = null;
@@ -52,8 +54,25 @@ export class ScoreManager {
     this.emitState();
   }
 
+  setPointsMultiplier(multiplier: number) {
+    this.pointsMultiplier = multiplier;
+  }
+
+  notifyPowerUp(label: string, elapsedMs: number) {
+    this.decayStreakIfExpired(elapsedMs);
+    this.bonusPulseKey += 1;
+    this.bonusBoard = {
+      label,
+      points: 0,
+      multiplier: this.multiplier,
+      pulseKey: this.bonusPulseKey,
+    };
+    this.emitState();
+  }
+
   addTimePoints(deltaMs: number, elapsedMs: number) {
-    const points = (deltaMs / 1000) * TIME_POINTS_PER_SECOND;
+    const points =
+      (deltaMs / 1000) * TIME_POINTS_PER_SECOND * this.pointsMultiplier;
     if (points <= 0) return;
     this.total += points;
     this.decayStreakIfExpired(elapsedMs);
@@ -84,12 +103,13 @@ export class ScoreManager {
     this.multiplier = 1 + (this.streak - 1) * STREAK_MULTIPLIER_INCREMENT;
     this.lastBonusAtMs = elapsedMs;
 
-    this.total += basePoints;
-    this.streakBonusBase += basePoints;
+    const awardedPoints = basePoints * this.pointsMultiplier;
+    this.total += awardedPoints;
+    this.streakBonusBase += awardedPoints;
     this.bonusPulseKey += 1;
     this.bonusBoard = {
       label,
-      points: basePoints,
+      points: awardedPoints,
       multiplier: this.multiplier,
       pulseKey: this.bonusPulseKey,
     };

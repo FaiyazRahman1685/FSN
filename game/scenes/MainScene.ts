@@ -17,6 +17,18 @@ import {
   PLAYER_VISUAL_RADIUS,
 } from "../collision";
 import {
+  ORB_COLORS,
+  ORB_LABELS,
+  ORB_POINTS_MULTIPLIER,
+  ORB_RADIUS,
+  ORB_SPAWN_CHANCE,
+  ORB_SPAWN_INTERVAL_MS,
+  ORB_SPEED_MULTIPLIER,
+  getOrbPowerUpDurationMs,
+  randomOrbPowerUpType,
+  type OrbPowerUpType,
+} from "../orbPowerUps";
+import {
   NEAR_MISS_MARGIN,
   ScoreManager,
 } from "../scoring";
@@ -34,28 +46,66 @@ const FORCED_PASS_DEFENDER_GAP = 4;
 const PLAYER_Y = GAME_HEIGHT - 70;
 const BALL_PASS_SPEED = 1100;
 const BALL_CATCH_DISTANCE = 14;
-const PLAYER2_TINT = 0x7dd3fc;
 const POWER_UP_TINT = 0xff3030;
 const POWER_UP_DURATION_MS = 2000;
 const POWER_UP_AURA_RADIUS = 30;
+const ORB_TIMER_BASE_OFFSET = 7;
+const PASS_TIMER_BG = "#991b1b";
+const ORB_TIMER_BG: Record<OrbPowerUpType, string> = {
+  doublePoints: "#a16207",
+  invulnerability: "#0e7490",
+  speedBoost: "#c2410c",
+};
+
+type PowerUpSource =
+  | { kind: "pass" }
+  | { kind: "orb"; type: OrbPowerUpType };
+
+type ActivePowerUp = {
+  source: PowerUpSource;
+  expiresAt: number;
+  timer: Phaser.GameObjects.Text;
+  aura?: Phaser.GameObjects.Arc;
+};
+
+function getPowerUpDurationMs(source: PowerUpSource) {
+  if (source.kind === "pass") return POWER_UP_DURATION_MS;
+  return getOrbPowerUpDurationMs(source.type);
+}
+
+function getPowerUpTimerBg(source: PowerUpSource) {
+  if (source.kind === "pass") return PASS_TIMER_BG;
+  return ORB_TIMER_BG[source.type];
+}
+
+function getPowerUpAuraColor(source: PowerUpSource) {
+  if (source.kind === "pass") return POWER_UP_TINT;
+  if (source.type === "invulnerability") return ORB_COLORS.invulnerability;
+  return undefined;
+}
 
 /** ballgen 8×8 sheet (1024², 128px frames) — MIT / CC0 via OpenGameArt */
 const BALL_FRAME = 128;
 const BALL_ROLL_FRAMES = [0, 1, 2, 3, 4, 5, 6, 7];
 const BALL_ANIM_FPS = 12;
 
-/** 16x16 pack run sheet — 24×24 canvas frames, 6 cols × 5 dirs; bottom row faces up the pitch */
+/** pixil-frame-0 sheet — 24×24 canvas frames, 6 cols × 5 character rows */
 const PLAYER_FRAME = 24;
 const PLAYER_SHEET_COLS = 6;
-const PLAYER_UP_ROW = 4;
-const PLAYER_DOWN_ROW = 0;
-const PLAYER_RUN_FRAMES = Array.from(
+const PIXIL_PLAYER1_ROW = 1;
+const PIXIL_PLAYER2_ROW = 4;
+const DEFENDER_DOWN_ROW = 0;
+const PLAYER1_RUN_FRAMES = Array.from(
   { length: PLAYER_SHEET_COLS },
-  (_, i) => PLAYER_UP_ROW * PLAYER_SHEET_COLS + i,
+  (_, i) => PIXIL_PLAYER1_ROW * PLAYER_SHEET_COLS + i,
+);
+const PLAYER2_RUN_FRAMES = Array.from(
+  { length: PLAYER_SHEET_COLS },
+  (_, i) => PIXIL_PLAYER2_ROW * PLAYER_SHEET_COLS + i,
 );
 const DEFENDER_RUN_FRAMES = Array.from(
   { length: PLAYER_SHEET_COLS },
-  (_, i) => PLAYER_DOWN_ROW * PLAYER_SHEET_COLS + i,
+  (_, i) => DEFENDER_DOWN_ROW * PLAYER_SHEET_COLS + i,
 );
 const PLAYER_ANIM_FPS = 12;
 const ANIM_TIMESCALE_MAX = 1.25;
@@ -69,15 +119,11 @@ export class MainScene extends Phaser.Scene {
   private ballHolder!: Phaser.GameObjects.Sprite;
   private ball!: Phaser.GameObjects.Sprite;
   private isPassing = false;
-  private powerUpUntil = new Map<Phaser.GameObjects.Sprite, number>();
-  private powerUpAuras = new Map<
+  private activePowerUps = new Map<
     Phaser.GameObjects.Sprite,
-    Phaser.GameObjects.Arc
+    ActivePowerUp
   >();
-  private powerUpTimers = new Map<
-    Phaser.GameObjects.Sprite,
-    Phaser.GameObjects.Text
-  >();
+  private orbs: Phaser.GameObjects.Arc[] = [];
   private defenders!: Phaser.Physics.Arcade.Group;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keyA!: Phaser.Input.Keyboard.Key;
@@ -87,6 +133,7 @@ export class MainScene extends Phaser.Scene {
   private difficulty: Difficulty = "easy";
   private scrollSpeed = BASE_SCROLL_SPEED;
   private spawnTimer?: Phaser.Time.TimerEvent;
+  private orbSpawnTimer?: Phaser.Time.TimerEvent;
   private elapsedMs = 0;
   private nextForcedPassAtMs = FORCED_PASS_START_DELAY_MS;
   private lastReportedSeconds = -1;
@@ -103,7 +150,11 @@ export class MainScene extends Phaser.Scene {
       frameHeight: BALL_FRAME,
       spacing: 0,
     });
-    this.load.spritesheet("player-run", "/sprites/player-run-16.png", {
+    this.load.spritesheet("pixil-players", "/sprites/player2-run.png", {
+      frameWidth: PLAYER_FRAME,
+      frameHeight: PLAYER_FRAME,
+    });
+    this.load.spritesheet("defender-run-sheet", "/sprites/player-run-16.png", {
       frameWidth: PLAYER_FRAME,
       frameHeight: PLAYER_FRAME,
     });
@@ -120,9 +171,8 @@ export class MainScene extends Phaser.Scene {
     this.localMultiplayer = isLocalMultiplayer(this.settings);
     this.isGameOver = false;
     this.isPassing = false;
-    this.powerUpUntil.clear();
-    this.powerUpAuras.clear();
-    this.powerUpTimers.clear();
+    this.orbs.forEach((orb) => orb.destroy());
+    this.orbs = [];
     this.elapsedMs = 0;
     this.nextForcedPassAtMs = FORCED_PASS_START_DELAY_MS;
     this.lastReportedSeconds = -1;
@@ -130,6 +180,7 @@ export class MainScene extends Phaser.Scene {
       this.callbacks.onScoreChange(score),
     );
     this.scoreManager.reset();
+    this.clearAllActivePowerUps();
     this.scrollSpeed =
       BASE_SCROLL_SPEED *
       DIFFICULTY_SETTINGS[this.difficulty].speedMultiplier;
@@ -147,7 +198,10 @@ export class MainScene extends Phaser.Scene {
     );
 
     // Nearest-neighbor sampling (belt-and-suspenders with pixelArt: true)
-    this.textures.get("player-run").setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.textures.get("pixil-players").setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.textures
+      .get("defender-run-sheet")
+      .setFilter(Phaser.Textures.FilterMode.NEAREST);
     this.textures.get("football").setFilter(Phaser.Textures.FilterMode.NEAREST);
     this.textures.get("pitch-grass").setFilter(Phaser.Textures.FilterMode.LINEAR);
 
@@ -165,8 +219,19 @@ export class MainScene extends Phaser.Scene {
     if (!this.anims.exists("player-run")) {
       this.anims.create({
         key: "player-run",
-        frames: this.anims.generateFrameNumbers("player-run", {
-          frames: PLAYER_RUN_FRAMES,
+        frames: this.anims.generateFrameNumbers("pixil-players", {
+          frames: PLAYER1_RUN_FRAMES,
+        }),
+        frameRate: PLAYER_ANIM_FPS,
+        repeat: -1,
+      });
+    }
+
+    if (!this.anims.exists("player2-run")) {
+      this.anims.create({
+        key: "player2-run",
+        frames: this.anims.generateFrameNumbers("pixil-players", {
+          frames: PLAYER2_RUN_FRAMES,
         }),
         frameRate: PLAYER_ANIM_FPS,
         repeat: -1,
@@ -176,7 +241,7 @@ export class MainScene extends Phaser.Scene {
     if (!this.anims.exists("defender-run")) {
       this.anims.create({
         key: "defender-run",
-        frames: this.anims.generateFrameNumbers("player-run", {
+        frames: this.anims.generateFrameNumbers("defender-run-sheet", {
           frames: DEFENDER_RUN_FRAMES,
         }),
         frameRate: PLAYER_ANIM_FPS,
@@ -189,8 +254,7 @@ export class MainScene extends Phaser.Scene {
     this.ballHolder = this.player;
 
     if (this.localMultiplayer) {
-      this.player2 = this.createRunner(GAME_WIDTH / 2 + 70);
-      this.player2.setTint(PLAYER2_TINT);
+      this.player2 = this.createRunner(GAME_WIDTH / 2 + 70, true);
     }
 
     // Ball in front of the runner (toward top of pitch / direction of travel)
@@ -226,8 +290,16 @@ export class MainScene extends Phaser.Scene {
       loop: true,
     });
 
+    this.orbSpawnTimer = this.time.addEvent({
+      delay: ORB_SPAWN_INTERVAL_MS,
+      callback: this.trySpawnOrb,
+      callbackScope: this,
+      loop: true,
+    });
+
     this.spawnDefenders();
     this.time.delayedCall(400, () => this.spawnDefenders());
+    this.time.delayedCall(1500, () => this.trySpawnOrb());
   }
 
   update(_time: number, delta: number) {
@@ -267,22 +339,22 @@ export class MainScene extends Phaser.Scene {
 
     this.handlePassInput();
     this.updateBall(delta);
-    this.updatePowerUps();
+    this.updateActivePowerUps();
+    this.syncPointsMultiplier();
+    this.updateOrbs(delta);
+    this.checkOrbCollisions();
     this.updateDefenders();
     this.checkPlayerDefenderCollisions();
     this.checkNearMisses();
   }
 
-  private createRunner(x: number) {
-    const runner = this.add.sprite(
-      x,
-      PLAYER_Y,
-      "player-run",
-      PLAYER_RUN_FRAMES[0],
-    );
+  private createRunner(x: number, isPlayer2 = false) {
+    const animKey = isPlayer2 ? "player2-run" : "player-run";
+    const startFrame = isPlayer2 ? PLAYER2_RUN_FRAMES[0] : PLAYER1_RUN_FRAMES[0];
+    const runner = this.add.sprite(x, PLAYER_Y, "pixil-players", startFrame);
     runner.setDisplaySize(PLAYER_DISPLAY_W, PLAYER_DISPLAY_H);
     runner.setOrigin(0.5, 0.5);
-    runner.play("player-run");
+    runner.play(animKey);
     return runner;
   }
 
@@ -304,7 +376,8 @@ export class MainScene extends Phaser.Scene {
     right: Phaser.Input.Keyboard.Key | undefined,
     delta: number,
   ) {
-    const step = (PLAYER_SPEED * delta) / 1000;
+    const step =
+      (PLAYER_SPEED * this.getSpeedMultiplier(runner) * delta) / 1000;
 
     if (left?.isDown) {
       runner.x -= step;
@@ -327,27 +400,63 @@ export class MainScene extends Phaser.Scene {
 
     const passer = this.ballHolder;
     const receiver = this.ballHolder === this.player ? this.player2 : this.player;
-    this.grantPowerUp(passer);
+    this.grantPassPowerUp(passer);
     this.isPassing = true;
     this.ballHolder = receiver;
   }
 
-  private grantPowerUp(runner: Phaser.GameObjects.Sprite) {
-    this.powerUpUntil.set(runner, this.elapsedMs + POWER_UP_DURATION_MS);
-    runner.setTint(POWER_UP_TINT);
+  private grantPassPowerUp(runner: Phaser.GameObjects.Sprite) {
+    this.grantActivePowerUp(runner, { kind: "pass" });
+  }
 
-    if (!this.powerUpAuras.has(runner)) {
-      const aura = this.add
+  private getRunners() {
+    return this.player2 ? [this.player, this.player2] : [this.player];
+  }
+
+  private getActivePowerUp(runner: Phaser.GameObjects.Sprite) {
+    const powerUp = this.activePowerUps.get(runner);
+    if (!powerUp || this.elapsedMs >= powerUp.expiresAt) return undefined;
+    return powerUp;
+  }
+
+  private grantActivePowerUp(
+    runner: Phaser.GameObjects.Sprite,
+    source: PowerUpSource,
+  ) {
+    this.clearActivePowerUp(runner);
+
+    const durationMs = getPowerUpDurationMs(source);
+    const expiresAt = this.elapsedMs + durationMs;
+    const initialSeconds = durationMs / 1000;
+    const timer = this.add
+      .text(
+        runner.x,
+        runner.y,
+        `${initialSeconds.toFixed(1)}s`,
+        {
+          fontFamily: "monospace",
+          fontSize: "13px",
+          color: "#ffffff",
+          backgroundColor: getPowerUpTimerBg(source),
+          padding: { x: 4, y: 2 },
+        },
+      )
+      .setOrigin(0.5)
+      .setDepth(5);
+
+    const auraColor = getPowerUpAuraColor(source);
+    let aura: Phaser.GameObjects.Arc | undefined;
+    if (auraColor !== undefined) {
+      aura = this.add
         .circle(
           runner.x,
           runner.y,
           POWER_UP_AURA_RADIUS,
-          POWER_UP_TINT,
+          auraColor,
           0.28,
         )
         .setDepth(1)
         .setBlendMode(Phaser.BlendModes.ADD);
-      this.powerUpAuras.set(runner, aura);
       this.tweens.add({
         targets: aura,
         alpha: { from: 0.18, to: 0.42 },
@@ -358,64 +467,206 @@ export class MainScene extends Phaser.Scene {
       });
     }
 
-    if (!this.powerUpTimers.has(runner)) {
-      const timer = this.add
-        .text(runner.x, runner.y, "2.0s", {
-          fontFamily: "monospace",
-          fontSize: "13px",
-          color: "#ffffff",
-          backgroundColor: "#991b1b",
-          padding: { x: 4, y: 2 },
-        })
-        .setOrigin(0.5)
-        .setDepth(5);
-      this.powerUpTimers.set(runner, timer);
-    }
+    this.activePowerUps.set(runner, { source, expiresAt, timer, aura });
+    this.applyRunnerTint(runner);
   }
 
-  private updatePowerUps() {
-    this.powerUpUntil.forEach((expiresAt, runner) => {
-      if (this.elapsedMs >= expiresAt) {
-        this.removePowerUp(runner);
-        return;
+  private powerUpTimerY(runner: Phaser.GameObjects.Sprite) {
+    return runner.y + PLAYER_DISPLAY_H / 2 + ORB_TIMER_BASE_OFFSET;
+  }
+
+  private updateActivePowerUps() {
+    for (const runner of this.getRunners()) {
+      const powerUp = this.activePowerUps.get(runner);
+      if (!powerUp) continue;
+
+      if (this.elapsedMs >= powerUp.expiresAt) {
+        this.clearActivePowerUp(runner);
+        continue;
       }
 
-      this.powerUpAuras.get(runner)?.setPosition(runner.x, runner.y);
+      powerUp.aura?.setPosition(runner.x, runner.y);
       const remainingSeconds =
-        Math.ceil((expiresAt - this.elapsedMs) / 100) / 10;
-      this.powerUpTimers
-        .get(runner)
-        ?.setText(`${remainingSeconds.toFixed(1)}s`)
-        .setPosition(runner.x, runner.y + PLAYER_DISPLAY_H / 2 + 7);
-    });
-  }
-
-  private removePowerUp(runner: Phaser.GameObjects.Sprite) {
-    this.powerUpUntil.delete(runner);
-    const aura = this.powerUpAuras.get(runner);
-    if (aura) {
-      this.tweens.killTweensOf(aura);
-      aura.destroy();
-      this.powerUpAuras.delete(runner);
-    }
-    this.powerUpTimers.get(runner)?.destroy();
-    this.powerUpTimers.delete(runner);
-
-    if (runner === this.player2) {
-      runner.setTint(PLAYER2_TINT);
-    } else {
-      runner.clearTint();
+        Math.ceil((powerUp.expiresAt - this.elapsedMs) / 100) / 10;
+      powerUp.timer
+        .setText(`${remainingSeconds.toFixed(1)}s`)
+        .setPosition(runner.x, this.powerUpTimerY(runner));
     }
   }
 
-  private clearPowerUps() {
-    [...this.powerUpUntil.keys()].forEach((runner) =>
-      this.removePowerUp(runner),
+  private clearActivePowerUp(runner: Phaser.GameObjects.Sprite) {
+    const powerUp = this.activePowerUps.get(runner);
+    if (!powerUp) return;
+
+    if (powerUp.aura) {
+      this.tweens.killTweensOf(powerUp.aura);
+      powerUp.aura.destroy();
+    }
+    powerUp.timer.destroy();
+    this.activePowerUps.delete(runner);
+    this.applyRunnerTint(runner);
+  }
+
+  private clearAllActivePowerUps() {
+    [...this.activePowerUps.keys()].forEach((runner) =>
+      this.clearActivePowerUp(runner),
+    );
+    this.scoreManager.setPointsMultiplier(1);
+  }
+
+  private isPlayerInvulnerable(runner: Phaser.GameObjects.Sprite) {
+    const powerUp = this.getActivePowerUp(runner);
+    if (!powerUp) return false;
+    return (
+      powerUp.source.kind === "pass" ||
+      (powerUp.source.kind === "orb" &&
+        powerUp.source.type === "invulnerability")
     );
   }
 
-  private isPlayerPowered(runner: Phaser.GameObjects.Sprite) {
-    return (this.powerUpUntil.get(runner) ?? 0) > this.elapsedMs;
+  private getSpeedMultiplier(runner: Phaser.GameObjects.Sprite) {
+    const powerUp = this.getActivePowerUp(runner);
+    return powerUp?.source.kind === "orb" &&
+      powerUp.source.type === "speedBoost"
+      ? ORB_SPEED_MULTIPLIER
+      : 1;
+  }
+
+  private syncPointsMultiplier() {
+    const hasDoublePoints = this.getRunners().some((runner) => {
+      const powerUp = this.getActivePowerUp(runner);
+      return (
+        powerUp?.source.kind === "orb" && powerUp.source.type === "doublePoints"
+      );
+    });
+    this.scoreManager.setPointsMultiplier(
+      hasDoublePoints ? ORB_POINTS_MULTIPLIER : 1,
+    );
+  }
+
+  private applyRunnerTint(runner: Phaser.GameObjects.Sprite) {
+    const powerUp = this.getActivePowerUp(runner);
+    if (powerUp?.source.kind === "pass") {
+      runner.setTint(POWER_UP_TINT);
+      return;
+    }
+    if (
+      powerUp?.source.kind === "orb" &&
+      powerUp.source.type === "speedBoost"
+    ) {
+      runner.setTint(ORB_COLORS.speedBoost);
+      return;
+    }
+    runner.clearTint();
+  }
+
+  private trySpawnOrb() {
+    if (this.isGameOver || Math.random() >= ORB_SPAWN_CHANCE) return;
+
+    const type = randomOrbPowerUpType();
+    const x = Phaser.Math.Between(
+      PITCH_MARGIN + ORB_RADIUS,
+      GAME_WIDTH - PITCH_MARGIN - ORB_RADIUS,
+    );
+    const y = -ORB_RADIUS - 10;
+
+    const orb = this.add
+      .circle(x, y, ORB_RADIUS, ORB_COLORS[type], 1)
+      .setDepth(2)
+      .setStrokeStyle(2, 0xffffff, 0.55)
+      .setData("type", type);
+
+    this.tweens.add({
+      targets: orb,
+      scale: { from: 0.85, to: 1.15 },
+      alpha: { from: 0.75, to: 1 },
+      duration: 450,
+      yoyo: true,
+      repeat: -1,
+    });
+
+    this.orbs.push(orb);
+  }
+
+  private updateOrbs(delta: number) {
+    for (let index = this.orbs.length - 1; index >= 0; index -= 1) {
+      const orb = this.orbs[index];
+      orb.y += (this.scrollSpeed * delta) / 1000;
+
+      if (orb.y > GAME_HEIGHT + ORB_RADIUS + 20) {
+        this.tweens.killTweensOf(orb);
+        orb.destroy();
+        this.orbs.splice(index, 1);
+      }
+    }
+  }
+
+  private checkOrbCollisions() {
+    for (let index = this.orbs.length - 1; index >= 0; index -= 1) {
+      const orb = this.orbs[index];
+      const type = orb.getData("type") as OrbPowerUpType;
+
+      for (const runner of this.getRunners()) {
+        if (
+          !circlesOverlap(
+            runner.x,
+            runner.y,
+            PLAYER_VISUAL_RADIUS,
+            orb.x,
+            orb.y,
+            ORB_RADIUS,
+          )
+        ) {
+          continue;
+        }
+
+        this.collectOrb(orb, index, runner, type);
+        break;
+      }
+    }
+  }
+
+  private collectOrb(
+    orb: Phaser.GameObjects.Arc,
+    index: number,
+    runner: Phaser.GameObjects.Sprite,
+    type: OrbPowerUpType,
+  ) {
+    const { x, y } = orb;
+    this.tweens.killTweensOf(orb);
+    orb.destroy();
+    this.orbs.splice(index, 1);
+
+    const burst = this.add
+      .circle(x, y, ORB_RADIUS, ORB_COLORS[type], 0.85)
+      .setDepth(4)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: burst,
+      alpha: 0,
+      scale: 2.2,
+      duration: 220,
+      ease: "Quad.easeOut",
+      onComplete: () => burst.destroy(),
+    });
+
+    this.applyOrbPowerUp(runner, type);
+    this.scoreManager.notifyPowerUp(ORB_LABELS[type], this.elapsedMs);
+  }
+
+  private applyOrbPowerUp(
+    runner: Phaser.GameObjects.Sprite,
+    type: OrbPowerUpType,
+  ) {
+    this.grantActivePowerUp(runner, { kind: "orb", type });
+  }
+
+  private clearOrbEffects() {
+    this.orbs.forEach((orb) => {
+      this.tweens.killTweensOf(orb);
+      orb.destroy();
+    });
+    this.orbs = [];
   }
 
   private updateBall(delta: number) {
@@ -449,8 +700,9 @@ export class MainScene extends Phaser.Scene {
   }
 
   private cancelPowerUpForBallHolder() {
-    if (this.isPlayerPowered(this.ballHolder)) {
-      this.removePowerUp(this.ballHolder);
+    const powerUp = this.getActivePowerUp(this.ballHolder);
+    if (powerUp?.source.kind === "pass") {
+      this.clearActivePowerUp(this.ballHolder);
     }
   }
 
@@ -503,7 +755,7 @@ export class MainScene extends Phaser.Scene {
           continue;
         }
 
-        if (this.isPlayerPowered(runner)) {
+        if (this.isPlayerInvulnerable(runner)) {
           this.destroyDefenderWithGlow(defender);
         } else {
           this.endGame();
@@ -605,7 +857,7 @@ export class MainScene extends Phaser.Scene {
     const defender = this.defenders.create(
       x,
       y,
-      "player-run",
+      "defender-run-sheet",
       DEFENDER_RUN_FRAMES[0],
     ) as Phaser.Physics.Arcade.Sprite;
 
@@ -688,8 +940,10 @@ export class MainScene extends Phaser.Scene {
     this.isPassing = false;
 
     this.spawnTimer?.remove(false);
+    this.orbSpawnTimer?.remove(false);
     this.physics.pause();
-    this.clearPowerUps();
+    this.clearAllActivePowerUps();
+    this.clearOrbEffects();
     this.ball.anims.pause();
     this.player.anims.pause();
     this.player2?.anims.pause();

@@ -32,7 +32,9 @@ export default function BonusBoard({ bonusBoard }: BonusBoardProps) {
   return (
     <div className={`bonus-board ${animClass}`.trim()} aria-live="polite">
       <span className="bonus-board-label">{bonusBoard.label}</span>
-      <span className="bonus-board-points">+{bonusBoard.points}</span>
+      {bonusBoard.points > 0 ? (
+        <span className="bonus-board-points">+{bonusBoard.points}</span>
+      ) : null}
       <span className="bonus-board-multiplier">
         {formatMultiplier(bonusBoard.multiplier)}
       </span>

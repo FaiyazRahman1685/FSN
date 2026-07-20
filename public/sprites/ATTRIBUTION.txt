@@ -10,3 +10,9 @@ License: MIT / CC0
 From Eri Sesra character template pack (16x16 Run-Sheet.png)
 https://www.erisesra.com/socials
 Canvas: 24×24 frames (character ~16×16). Free for commercial/non-commercial use; credit appreciated, do not resell.
+
+## player2-run.png
+From pixil-frame-0.png (shared player sheet).
+- Player 1: row 2 (yellow hair, light blue shirt, tan pants)
+- Player 2: bottom row (yellow hair, red shirt, blue shorts)
+User-provided asset in spirtes/pixil-frame-0.png.
