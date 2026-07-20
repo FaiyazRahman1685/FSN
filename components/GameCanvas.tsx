@@ -38,7 +38,7 @@ export default function GameCanvas({
     const callbacks: GameCallbacks = {
       onTick: (seconds) => onTickRef.current(seconds),
       onScoreChange: (score) => onScoreChangeRef.current(score),
-      onGameOver: (seconds, score) => onGameOverRef.current(seconds, score),
+      onGameOver: (result) => onGameOverRef.current(result),
     };
 
     (async () => {

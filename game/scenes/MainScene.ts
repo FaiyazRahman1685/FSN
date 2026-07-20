@@ -7,6 +7,7 @@ import {
 import type { GameCallbacks } from "../events";
 import {
   isLocalMultiplayer,
+  type PlayerNames,
   type SessionSettings,
 } from "../playMode";
 import {
@@ -29,9 +30,13 @@ import {
   type OrbPowerUpType,
 } from "../orbPowerUps";
 import {
+  KILL_BONUS_BASE,
+  NEAR_MISS_BONUS_BASE,
   NEAR_MISS_MARGIN,
   ScoreManager,
+  TIME_POINTS_PER_SECOND,
 } from "../scoring";
+import { PlayerScoreLedger, type PlayerSlot } from "../playerScores";
 
 const PLAYER_DISPLAY_W = 64;
 const PLAYER_DISPLAY_H = 64;
@@ -43,13 +48,27 @@ const SPAWN_INTERVAL_MS = 900;
 const PITCH_MARGIN = 36;
 const FORCED_PASS_START_DELAY_MS = 3000;
 const FORCED_PASS_DEFENDER_GAP = 4;
-const PLAYER_Y = GAME_HEIGHT - 70;
+const PLAYER_LABEL_RESERVE = 28;
+const PLAYER_Y = GAME_HEIGHT - 70 - PLAYER_LABEL_RESERVE;
 const BALL_PASS_SPEED = 1100;
 const BALL_CATCH_DISTANCE = 14;
 const POWER_UP_TINT = 0xff3030;
 const POWER_UP_DURATION_MS = 2000;
 const POWER_UP_AURA_RADIUS = 30;
-const ORB_TIMER_BASE_OFFSET = 7;
+const LABEL_GAP = 2;
+const NAME_TAG_STYLE = {
+  fontFamily: "Arial, sans-serif",
+  fontSize: "9px",
+  color: "#ffffff",
+  backgroundColor: "#00000099",
+  padding: { x: 4, y: 1 },
+} as const;
+const POWER_UP_TIMER_STYLE = {
+  fontFamily: "monospace",
+  fontSize: "10px",
+  color: "#ffffff",
+  padding: { x: 3, y: 1 },
+} as const;
 const PASS_TIMER_BG = "#991b1b";
 const ORB_TIMER_BG: Record<OrbPowerUpType, string> = {
   doublePoints: "#a16207",
@@ -139,6 +158,12 @@ export class MainScene extends Phaser.Scene {
   private lastReportedSeconds = -1;
   private isGameOver = false;
   private scoreManager!: ScoreManager;
+  private playerScoreLedger = new PlayerScoreLedger();
+  private playerNames!: PlayerNames;
+  private playerNameTags = new Map<
+    Phaser.GameObjects.Sprite,
+    Phaser.GameObjects.Text
+  >();
 
   constructor() {
     super("MainScene");
@@ -180,6 +205,9 @@ export class MainScene extends Phaser.Scene {
       this.callbacks.onScoreChange(score),
     );
     this.scoreManager.reset();
+    this.playerScoreLedger.reset();
+    this.playerNames = this.settings.playerNames;
+    this.playerNameTags.clear();
     this.clearAllActivePowerUps();
     this.scrollSpeed =
       BASE_SCROLL_SPEED *
@@ -250,11 +278,15 @@ export class MainScene extends Phaser.Scene {
     }
 
     const p1X = this.localMultiplayer ? GAME_WIDTH / 2 - 70 : GAME_WIDTH / 2;
-    this.player = this.createRunner(p1X);
+    this.player = this.createRunner(p1X, false, this.playerNames.player1);
     this.ballHolder = this.player;
 
     if (this.localMultiplayer) {
-      this.player2 = this.createRunner(GAME_WIDTH / 2 + 70, true);
+      this.player2 = this.createRunner(
+        GAME_WIDTH / 2 + 70,
+        true,
+        this.playerNames.player2,
+      );
     }
 
     // Ball in front of the runner (toward top of pitch / direction of travel)
@@ -306,7 +338,7 @@ export class MainScene extends Phaser.Scene {
     if (this.isGameOver) return;
 
     this.elapsedMs += delta;
-    this.scoreManager.addTimePoints(delta, this.elapsedMs);
+    this.addTimePointsForPlayers(delta);
     const seconds = Math.floor(this.elapsedMs / 100) / 10;
     if (seconds !== this.lastReportedSeconds) {
       this.lastReportedSeconds = seconds;
@@ -339,6 +371,7 @@ export class MainScene extends Phaser.Scene {
 
     this.handlePassInput();
     this.updateBall(delta);
+    this.updateNameTags();
     this.updateActivePowerUps();
     this.syncPointsMultiplier();
     this.updateOrbs(delta);
@@ -348,14 +381,89 @@ export class MainScene extends Phaser.Scene {
     this.checkNearMisses();
   }
 
-  private createRunner(x: number, isPlayer2 = false) {
+  private createRunner(
+    x: number,
+    isPlayer2 = false,
+    displayName = isPlayer2 ? "Player 2" : "Player 1",
+  ) {
     const animKey = isPlayer2 ? "player2-run" : "player-run";
     const startFrame = isPlayer2 ? PLAYER2_RUN_FRAMES[0] : PLAYER1_RUN_FRAMES[0];
     const runner = this.add.sprite(x, PLAYER_Y, "pixil-players", startFrame);
     runner.setDisplaySize(PLAYER_DISPLAY_W, PLAYER_DISPLAY_H);
     runner.setOrigin(0.5, 0.5);
     runner.play(animKey);
+    this.createNameTag(runner, displayName);
     return runner;
+  }
+
+  private createNameTag(runner: Phaser.GameObjects.Sprite, displayName: string) {
+    const tag = this.add
+      .text(runner.x, runner.y, displayName, NAME_TAG_STYLE)
+      .setOrigin(0.5, 0)
+      .setDepth(6);
+    tag.setPosition(runner.x, this.nameTagY(runner));
+    this.playerNameTags.set(runner, tag);
+  }
+
+  private playerFeetY(runner: Phaser.GameObjects.Sprite) {
+    return runner.y + PLAYER_DISPLAY_H / 2;
+  }
+
+  private nameTagY(runner: Phaser.GameObjects.Sprite) {
+    return this.playerFeetY(runner) + LABEL_GAP;
+  }
+
+  private updateNameTags() {
+    for (const runner of this.getRunners()) {
+      const tag = this.playerNameTags.get(runner);
+      tag?.setPosition(runner.x, this.nameTagY(runner));
+    }
+  }
+
+  private powerUpTimerY(runner: Phaser.GameObjects.Sprite) {
+    const nameTag = this.playerNameTags.get(runner);
+    if (nameTag) {
+      return nameTag.y + nameTag.height + LABEL_GAP;
+    }
+    return this.nameTagY(runner) + 12 + LABEL_GAP;
+  }
+
+  private getPlayerSlot(runner: Phaser.GameObjects.Sprite): PlayerSlot {
+    return runner === this.player2 ? "p2" : "p1";
+  }
+
+  private getOrbPointsMultiplier() {
+    return this.getRunners().some((runner) => {
+      const powerUp = this.getActivePowerUp(runner);
+      return (
+        powerUp?.source.kind === "orb" && powerUp.source.type === "doublePoints"
+      );
+    })
+      ? ORB_POINTS_MULTIPLIER
+      : 1;
+  }
+
+  private addTimePointsForPlayers(delta: number) {
+    this.scoreManager.addTimePoints(delta, this.elapsedMs);
+    const points =
+      (delta / 1000) * TIME_POINTS_PER_SECOND * this.getOrbPointsMultiplier();
+
+    if (points <= 0) return;
+
+    this.playerScoreLedger.add("p1", points);
+    if (this.player2) {
+      this.playerScoreLedger.add("p2", points);
+    }
+  }
+
+  private creditPlayerBonus(
+    runner: Phaser.GameObjects.Sprite,
+    basePoints: number,
+  ) {
+    this.playerScoreLedger.add(
+      this.getPlayerSlot(runner),
+      basePoints * this.getOrbPointsMultiplier(),
+    );
   }
 
   private drawPitch() {
@@ -434,15 +542,12 @@ export class MainScene extends Phaser.Scene {
         runner.y,
         `${initialSeconds.toFixed(1)}s`,
         {
-          fontFamily: "monospace",
-          fontSize: "13px",
-          color: "#ffffff",
+          ...POWER_UP_TIMER_STYLE,
           backgroundColor: getPowerUpTimerBg(source),
-          padding: { x: 4, y: 2 },
         },
       )
-      .setOrigin(0.5)
-      .setDepth(5);
+      .setOrigin(0.5, 0)
+      .setDepth(7);
 
     const auraColor = getPowerUpAuraColor(source);
     let aura: Phaser.GameObjects.Arc | undefined;
@@ -469,10 +574,6 @@ export class MainScene extends Phaser.Scene {
 
     this.activePowerUps.set(runner, { source, expiresAt, timer, aura });
     this.applyRunnerTint(runner);
-  }
-
-  private powerUpTimerY(runner: Phaser.GameObjects.Sprite) {
-    return runner.y + PLAYER_DISPLAY_H / 2 + ORB_TIMER_BASE_OFFSET;
   }
 
   private updateActivePowerUps() {
@@ -756,7 +857,7 @@ export class MainScene extends Phaser.Scene {
         }
 
         if (this.isPlayerInvulnerable(runner)) {
-          this.destroyDefenderWithGlow(defender);
+          this.destroyDefenderWithGlow(defender, runner);
         } else {
           this.endGame();
         }
@@ -767,12 +868,16 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  private destroyDefenderWithGlow(defender: Phaser.Physics.Arcade.Sprite) {
+  private destroyDefenderWithGlow(
+    defender: Phaser.Physics.Arcade.Sprite,
+    runner: Phaser.GameObjects.Sprite,
+  ) {
     const { x, y } = defender;
     defender.anims.pause();
     this.defenders.killAndHide(defender);
     (defender.body as Phaser.Physics.Arcade.Body).enable = false;
     this.scoreManager.awardKill(this.elapsedMs);
+    this.creditPlayerBonus(runner, KILL_BONUS_BASE);
 
     const glow = this.add
       .circle(x, y, PLAYER_VISUAL_RADIUS, 0xfff3b0, 0.9)
@@ -926,6 +1031,7 @@ export class MainScene extends Phaser.Scene {
         if (gap > 0 && gap <= NEAR_MISS_MARGIN) {
           defender.setData("nearMissAwarded", true);
           this.scoreManager.awardNearMiss(this.elapsedMs);
+          this.creditPlayerBonus(runner, NEAR_MISS_BONUS_BASE);
           break;
         }
       }
@@ -955,7 +1061,30 @@ export class MainScene extends Phaser.Scene {
     this.scoreManager.finalizeStreak();
 
     const seconds = Math.floor(this.elapsedMs / 100) / 10;
+    const totalScore = this.scoreManager.getFinalScore();
+    this.playerScoreLedger.distributeRemainder(totalScore, Boolean(this.player2));
+
     this.callbacks.onTick(seconds);
-    this.callbacks.onGameOver(seconds, this.scoreManager.getFinalScore());
+    this.callbacks.onGameOver({
+      seconds,
+      totalScore,
+      players: this.player2
+        ? [
+            {
+              name: this.playerNames.player1,
+              score: this.playerScoreLedger.get("p1"),
+            },
+            {
+              name: this.playerNames.player2,
+              score: this.playerScoreLedger.get("p2"),
+            },
+          ]
+        : [
+            {
+              name: this.playerNames.player1,
+              score: totalScore,
+            },
+          ],
+    });
   }
 }
