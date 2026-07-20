@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme inline {
-  --font-sans: var(--font-pixelify-sans), "Pixelify Sans", sans-serif;
+  --font-sans: var(--font-press-start), "Press Start 2P", cursive;
 }
 
 :root {
@@ -22,7 +22,8 @@ body {
     radial-gradient(ellipse at top, #1a3326 0%, var(--bg) 55%),
     var(--bg);
   color: var(--text);
-  font-family: var(--font-pixelify-sans), "Pixelify Sans", sans-serif;
+  font-family: var(--font-press-start), "Press Start 2P", cursive;
+  line-height: 1.5;
 }
 
 .game-shell {
@@ -37,17 +38,20 @@ body {
 }
 
 .game-header {
-  width: min(800px, 100%);
+  width: min(960px, 100%);
 }
 
 .game-header-row {
-  position: relative;
-  display: flex;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
 }
 
 .game-header-copy {
+  grid-column: 2;
   text-align: center;
+  max-width: 22rem;
 }
 
 .rules-button {
@@ -194,35 +198,40 @@ body {
 
 .rules-orb {
   flex-shrink: 0;
-  width: 0.85rem;
-  height: 0.85rem;
-  border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.55);
+  width: 2.25rem;
+  height: 2.25rem;
+  background-image: url("/sprites/pixil-frame-04.png");
+  background-repeat: no-repeat;
+  background-size: 300% 300%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
-.rules-orb--gold {
-  background: #ffd700;
+.rules-orb--double {
+  background-position: 0% 0%;
 }
 
-.rules-orb--cyan {
-  background: #60a5fa;
+.rules-orb--speed {
+  background-position: 0% 50%;
 }
 
-.rules-orb--orange {
-  background: #ef4444;
+.rules-orb--invuln {
+  background-position: 0% 100%;
 }
 
 .game-title {
   margin: 0;
-  font-size: clamp(1.75rem, 4vw, 2.5rem);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: clamp(1rem, 2.8vw, 1.35rem);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
 }
 
 .game-subtitle {
-  margin: 0.35rem 0 0;
+  margin: 0.45rem 0 0;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-size: 0.55rem;
+  line-height: 1.6;
 }
 
 .settings-row {
@@ -677,13 +686,13 @@ body {
 }
 
 .game-header-actions {
-  position: absolute;
-  top: 0;
-  right: 0;
+  grid-column: 3;
+  justify-self: end;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.5rem;
+  margin-right: -0.25rem;
 }
 
 .volume-controls {
@@ -747,18 +756,23 @@ body {
 
 @media (max-width: 640px) {
   .game-header-row {
+    display: flex;
     flex-direction: column;
     align-items: center;
     gap: 0.75rem;
   }
 
+  .game-header-copy {
+    max-width: none;
+  }
+
   .game-header-actions {
-    position: static;
     width: 100%;
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: center;
     align-items: center;
+    margin-right: 0;
   }
 
   .volume-controls {

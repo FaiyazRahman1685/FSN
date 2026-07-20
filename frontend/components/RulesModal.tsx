@@ -107,21 +107,33 @@ export default function RulesModal({ open, onClose }: RulesModalProps) {
             </p>
             <ul className="rules-list rules-powerups">
               <li>
-                <span className="rules-orb rules-orb--gold" aria-hidden />
+                <span
+                  className="rules-orb rules-orb--double"
+                  role="img"
+                  aria-label="2x points orb"
+                />
                 <span>
                   <strong>2× Points</strong> — doubles time and bonus points
                   for 8 s
                 </span>
               </li>
               <li>
-                <span className="rules-orb rules-orb--cyan" aria-hidden />
+                <span
+                  className="rules-orb rules-orb--invuln"
+                  role="img"
+                  aria-label="Invulnerability orb"
+                />
                 <span>
                   <strong>Invulnerability</strong> — smash through defenders
                   for 5 s
                 </span>
               </li>
               <li>
-                <span className="rules-orb rules-orb--orange" aria-hidden />
+                <span
+                  className="rules-orb rules-orb--speed"
+                  role="img"
+                  aria-label="Speed boost orb"
+                />
                 <span>
                   <strong>Speed boost</strong> — faster left/right movement
                   for 5 s

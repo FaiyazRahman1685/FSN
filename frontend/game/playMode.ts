@@ -2,6 +2,7 @@ import type { Difficulty } from "./difficulty";
 
 export type PlayMode = "single" | "multiplayer";
 export type MultiplayerKind = "local" | "online";
+export type DefenderNationality = "argentina" | "brazil";
 
 export type PlayerNames = {
   player1: string;
@@ -22,8 +23,31 @@ export type SessionSettings = {
   playMode: PlayMode;
   multiplayerKind: MultiplayerKind;
   playerNames: PlayerNames;
+  defenderNationality: DefenderNationality;
   online?: OnlineSessionInfo;
 };
+
+/** Same 6×5 / 24×24 grid; row differs per sheet. */
+export const DEFENDER_SHEETS: Record<
+  DefenderNationality,
+  { path: string; row: number; label: string }
+> = {
+  argentina: {
+    path: "/sprites/ops.png",
+    row: 1,
+    label: "Argentina",
+  },
+  brazil: {
+    path: "/sprites/brazil.png",
+    row: 2,
+    label: "Brazil",
+  },
+};
+
+export const DEFENDER_NATIONALITIES: DefenderNationality[] = [
+  "argentina",
+  "brazil",
+];
 
 export function isLocalMultiplayer(settings: SessionSettings): boolean {
   return settings.playMode === "multiplayer" && settings.multiplayerKind === "local";

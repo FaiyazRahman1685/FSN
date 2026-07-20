@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { Pixelify_Sans } from "next/font/google";
+import { Press_Start_2P } from "next/font/google";
 import "./globals.css";
 
-const pixelifySans = Pixelify_Sans({
+const pressStart2P = Press_Start_2P({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-pixelify-sans",
+  weight: "400",
+  variable: "--font-press-start",
   display: "swap",
 });
 
@@ -20,9 +20,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${pixelifySans.variable} h-full`}>
+    <html lang="en" className={`${pressStart2P.variable} h-full`}>
       <body
-        className={`${pixelifySans.className} font-sans min-h-full flex flex-col`}
+        className={`${pressStart2P.className} font-sans min-h-full flex flex-col`}
       >
         {children}
       </body>

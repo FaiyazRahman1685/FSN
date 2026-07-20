@@ -6,9 +6,11 @@ import {
 } from "../difficulty";
 import type { GameCallbacks } from "../events";
 import {
+  DEFENDER_SHEETS,
   isCoopMultiplayer,
   isLocalMultiplayer,
   isOnlineMultiplayer,
+  type DefenderNationality,
   type PlayerNames,
   type SessionSettings,
 } from "../playMode";
@@ -73,15 +75,15 @@ const POWER_UP_DURATION_MS = 2000;
 const POWER_UP_AURA_RADIUS = 30;
 const LABEL_GAP = 2;
 const NAME_TAG_STYLE = {
-  fontFamily: "Pixelify Sans, sans-serif",
-  fontSize: "10px",
+  fontFamily: "Press Start 2P, cursive",
+  fontSize: "8px",
   color: "#ffffff",
   backgroundColor: "#00000099",
   padding: { x: 4, y: 1 },
 } as const;
 const POWER_UP_TIMER_STYLE = {
-  fontFamily: "Pixelify Sans, sans-serif",
-  fontSize: "11px",
+  fontFamily: "Press Start 2P, cursive",
+  fontSize: "8px",
   color: "#ffffff",
   padding: { x: 3, y: 1 },
 } as const;
@@ -129,8 +131,6 @@ const PLAYER_FRAME = 24;
 const PLAYER_SHEET_COLS = 6;
 const PIXIL_PLAYER1_ROW = 1;
 const PIXIL_PLAYER2_ROW = 4;
-/** ops.png — same 6×5 / 24×24 grid; defender poses sit on row 1 */
-const DEFENDER_ROW = 1;
 const PLAYER1_RUN_FRAMES = Array.from(
   { length: PLAYER_SHEET_COLS },
   (_, i) => PIXIL_PLAYER1_ROW * PLAYER_SHEET_COLS + i,
@@ -138,10 +138,6 @@ const PLAYER1_RUN_FRAMES = Array.from(
 const PLAYER2_RUN_FRAMES = Array.from(
   { length: PLAYER_SHEET_COLS },
   (_, i) => PIXIL_PLAYER2_ROW * PLAYER_SHEET_COLS + i,
-);
-const DEFENDER_RUN_FRAMES = Array.from(
-  { length: PLAYER_SHEET_COLS },
-  (_, i) => DEFENDER_ROW * PLAYER_SHEET_COLS + i,
 );
 const PLAYER_ANIM_FPS = 12;
 const ANIM_TIMESCALE_MAX = 1.25;
@@ -174,6 +170,8 @@ export class MainScene extends Phaser.Scene {
   private keyEnter!: Phaser.Input.Keyboard.Key;
   private keySpace!: Phaser.Input.Keyboard.Key;
   private difficulty: Difficulty = "easy";
+  private defenderNationality: DefenderNationality = "argentina";
+  private defenderRunFrames: number[] = [];
   private scrollSpeed = BASE_SCROLL_SPEED;
   private spawnTimer?: Phaser.Time.TimerEvent;
   private orbSpawnTimer?: Phaser.Time.TimerEvent;
@@ -194,6 +192,10 @@ export class MainScene extends Phaser.Scene {
   }
 
   preload() {
+    const settings = this.registry.get("settings") as SessionSettings;
+    const nationality = settings.defenderNationality ?? "argentina";
+    const sheet = DEFENDER_SHEETS[nationality];
+
     this.load.spritesheet("football", "/sprites/football-roll.png", {
       frameWidth: BALL_FRAME,
       frameHeight: BALL_FRAME,
@@ -203,7 +205,7 @@ export class MainScene extends Phaser.Scene {
       frameWidth: PLAYER_FRAME,
       frameHeight: PLAYER_FRAME,
     });
-    this.load.spritesheet("defender-run-sheet", "/sprites/ops.png", {
+    this.load.spritesheet("defender-run-sheet", sheet.path, {
       frameWidth: PLAYER_FRAME,
       frameHeight: PLAYER_FRAME,
     });
@@ -218,12 +220,20 @@ export class MainScene extends Phaser.Scene {
     this.load.audio("whistle", "/sounds/whistle.wav");
     this.load.audio("powerup", "/sounds/powerup.wav");
     this.load.audio("kill", "/sounds/kill.wav");
+    this.load.audio("bonus", "/sounds/bonus.mp3");
+    this.load.audio("gameover", "/sounds/gameover.wav");
   }
 
   create() {
     this.callbacks = this.registry.get("callbacks") as GameCallbacks;
     this.settings = this.registry.get("settings") as SessionSettings;
     this.difficulty = this.settings.difficulty;
+    this.defenderNationality = this.settings.defenderNationality ?? "argentina";
+    this.defenderRunFrames = Array.from(
+      { length: PLAYER_SHEET_COLS },
+      (_, i) =>
+        DEFENDER_SHEETS[this.defenderNationality].row * PLAYER_SHEET_COLS + i,
+    );
     this.localMultiplayer = isLocalMultiplayer(this.settings);
     this.onlineMultiplayer = isOnlineMultiplayer(this.settings);
     this.coopMultiplayer = isCoopMultiplayer(this.settings);
@@ -318,7 +328,7 @@ export class MainScene extends Phaser.Scene {
       this.anims.create({
         key: "defender-run",
         frames: this.anims.generateFrameNumbers("defender-run-sheet", {
-          frames: DEFENDER_RUN_FRAMES,
+          frames: this.defenderRunFrames,
         }),
         frameRate: PLAYER_ANIM_FPS,
         repeat: -1,
@@ -1023,6 +1033,7 @@ export class MainScene extends Phaser.Scene {
     this.defenders.killAndHide(defender);
     (defender.body as Phaser.Physics.Arcade.Body).enable = false;
     this.sound.play("kill", { volume: getSfxVolume() });
+    this.sound.play("bonus", { volume: getSfxVolume() });
     this.scoreManager.awardKill(this.elapsedMs);
     this.creditPlayerBonus(runner, KILL_BONUS_BASE);
 
@@ -1110,7 +1121,7 @@ export class MainScene extends Phaser.Scene {
       x,
       y,
       "defender-run-sheet",
-      DEFENDER_RUN_FRAMES[0],
+      this.defenderRunFrames[0],
     ) as Phaser.Physics.Arcade.Sprite;
 
     defender
@@ -1177,6 +1188,7 @@ export class MainScene extends Phaser.Scene {
 
         if (gap > 0 && gap <= NEAR_MISS_MARGIN) {
           defender.setData("nearMissAwarded", true);
+          this.sound.play("bonus", { volume: getSfxVolume() });
           this.scoreManager.awardNearMiss(this.elapsedMs);
           this.creditPlayerBonus(runner, NEAR_MISS_BONUS_BASE);
           break;
@@ -1191,6 +1203,7 @@ export class MainScene extends Phaser.Scene {
     if (this.isGameOver) return;
     this.isGameOver = true;
     this.isPassing = false;
+    this.sound.play("gameover", { volume: getSfxVolume() });
 
     this.spawnTimer?.remove(false);
     this.orbSpawnTimer?.remove(false);

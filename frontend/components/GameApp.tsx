@@ -5,10 +5,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameOverResult } from "@/game/events";
 import type { Difficulty } from "@/game/difficulty";
 import type {
+  DefenderNationality,
   MultiplayerKind,
   OnlineSessionInfo,
   PlayMode,
   PlayerNames,
+} from "@/game/playMode";
+import {
+  DEFENDER_NATIONALITIES,
+  DEFENDER_SHEETS,
 } from "@/game/playMode";
 import type { GameScoreState } from "@/game/scoring";
 import {
@@ -75,12 +80,15 @@ export default function GameApp() {
   const [multiplayerKind, setMultiplayerKind] =
     useState<MultiplayerKind>("local");
   const [difficulty, setDifficulty] = useState<Difficulty>("easy");
+  const [defenderNationality, setDefenderNationality] =
+    useState<DefenderNationality>("argentina");
   const [player1Name, setPlayer1Name] = useState(DEFAULT_PLAYER_NAMES.player1);
   const [player2Name, setPlayer2Name] = useState(DEFAULT_PLAYER_NAMES.player2);
   const [activeSettings, setActiveSettings] = useState({
     playMode: "single" as PlayMode,
     multiplayerKind: "local" as MultiplayerKind,
     difficulty: "easy" as Difficulty,
+    defenderNationality: "argentina" as DefenderNationality,
     playerNames: DEFAULT_PLAYER_NAMES,
     online: undefined as OnlineSessionInfo | undefined,
   });
@@ -195,6 +203,7 @@ export default function GameApp() {
         playMode: "multiplayer",
         multiplayerKind: "online",
         difficulty: payload.roomSnapshot.difficulty,
+        defenderNationality,
         playerNames,
         online: {
           ...payload.session,
@@ -206,7 +215,7 @@ export default function GameApp() {
       setPhase("playing");
       setOnlineLobbyPhase("none");
     },
-    [],
+    [defenderNationality],
   );
 
   const connectToRoom = useCallback(
@@ -333,12 +342,13 @@ export default function GameApp() {
       playMode,
       multiplayerKind,
       difficulty,
+      defenderNationality,
       playerNames,
       online: undefined,
     });
     setSessionId((id) => id + 1);
     setPhase("playing");
-  }, [playMode, multiplayerKind, difficulty, player1Name, player2Name]);
+  }, [playMode, multiplayerKind, difficulty, defenderNationality, player1Name, player2Name]);
 
   const handleTick = useCallback((value: number) => {
     setSeconds(value);
@@ -508,6 +518,26 @@ export default function GameApp() {
             {DIFFICULTIES.map((option) => (
               <option key={option} value={option}>
                 {option.charAt(0).toUpperCase() + option.slice(1)}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="setting-field">
+          <span className="setting-label">Defenders</span>
+          <select
+            className="setting-select"
+            value={defenderNationality}
+            disabled={controlsLocked}
+            onChange={(event) =>
+              setDefenderNationality(
+                event.target.value as DefenderNationality,
+              )
+            }
+          >
+            {DEFENDER_NATIONALITIES.map((option) => (
+              <option key={option} value={option}>
+                {DEFENDER_SHEETS[option].label}
               </option>
             ))}
           </select>
