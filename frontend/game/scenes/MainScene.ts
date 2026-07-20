@@ -1243,6 +1243,8 @@ export class MainScene extends Phaser.Scene {
     this.spawnTimer?.remove(false);
     this.orbSpawnTimer?.remove(false);
     this.physics.pause();
+    // Release Phaser key captures (A/D/Space/arrows/etc.) so DOM name inputs work.
+    this.input.keyboard?.removeAllKeys(true, true);
     this.clearAllActivePowerUps();
     this.clearOrbEffects();
     this.ball.anims.pause();
