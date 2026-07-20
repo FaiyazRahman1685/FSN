@@ -20,10 +20,11 @@ export const ORB_LABELS: Record<OrbPowerUpType, string> = {
 
 /** 3×3 sheet — rows: 2× points, speed, invulnerability; cols: pulse frames */
 export const ORB_SHEET_KEY = "powerups";
-export const ORB_FRAME_W = 48;
-export const ORB_FRAME_H = 40;
-export const ORB_DISPLAY_W = 40;
-export const ORB_DISPLAY_H = 34;
+export const ORB_SHEET_PATH = "/sprites/pixil-frame-04.png";
+export const ORB_FRAME_W = 120;
+export const ORB_FRAME_H = 120;
+export const ORB_DISPLAY_W = 56;
+export const ORB_DISPLAY_H = 56;
 export const ORB_ANIM_FPS = 5;
 
 export const ORB_ANIM_KEYS: Record<OrbPowerUpType, string> = {
@@ -39,7 +40,7 @@ export const ORB_PULSE_FRAMES: Record<OrbPowerUpType, number[]> = {
   invulnerability: [6, 7, 8],
 };
 
-export const ORB_RADIUS = 17;
+export const ORB_RADIUS = 24;
 export const ORB_SPAWN_INTERVAL_MS = 3200;
 export const ORB_SPAWN_CHANCE = 0.55;
 export const ORB_INVULN_DURATION_MS = 5000;

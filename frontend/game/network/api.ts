@@ -99,14 +99,21 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// Online multiplayer deferred — health ping disabled for now.
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
-  const response = await fetch(`${API_URL}/health`, { signal });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as HealthResponse | null;
-    if (body) return body;
-    throw new Error("Health check failed");
-  }
-  return response.json() as Promise<HealthResponse>;
+  // const response = await fetch(`${API_URL}/health`, { signal });
+  // if (!response.ok) {
+  //   const body = (await response.json().catch(() => null)) as HealthResponse | null;
+  //   if (body) return body;
+  //   throw new Error("Health check failed");
+  // }
+  // return response.json() as Promise<HealthResponse>;
+  void signal;
+  return {
+    status: "offline",
+    redis: "unavailable",
+    online_multiplayer_available: false,
+  };
 }
 
 export function createRoom(username: string, difficulty: Difficulty) {

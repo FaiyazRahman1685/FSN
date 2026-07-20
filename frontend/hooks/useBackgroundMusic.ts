@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { getMusicVolume } from "@/game/audioVolumes";
 
 export const BACKGROUND_MUSIC_SRC = "/sounds/background-song.mp3";
 
-export function useBackgroundMusic(isPlaying: boolean) {
+export function useBackgroundMusic(isPlaying: boolean, volume: number) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const audio = new Audio(BACKGROUND_MUSIC_SRC);
     audio.loop = true;
-    audio.volume = 0.45;
+    audio.volume = getMusicVolume();
     audioRef.current = audio;
 
     return () => {
@@ -18,6 +19,12 @@ export function useBackgroundMusic(isPlaying: boolean) {
       audioRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.volume = Math.min(1, Math.max(0, volume));
+  }, [volume]);
 
   useEffect(() => {
     const audio = audioRef.current;

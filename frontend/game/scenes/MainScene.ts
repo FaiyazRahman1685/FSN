@@ -32,6 +32,7 @@ import {
   ORB_PULSE_FRAMES,
   ORB_RADIUS,
   ORB_SHEET_KEY,
+  ORB_SHEET_PATH,
   ORB_SPAWN_CHANCE,
   ORB_SPAWN_INTERVAL_MS,
   ORB_SPEED_MULTIPLIER,
@@ -39,6 +40,7 @@ import {
   randomOrbPowerUpType,
   type OrbPowerUpType,
 } from "../orbPowerUps";
+import { getSfxVolume } from "../audioVolumes";
 import { createRng, type GameRng } from "../rng";
 import {
   InputSyncBridge,
@@ -56,7 +58,6 @@ import { PlayerScoreLedger, type PlayerSlot } from "../playerScores";
 const PLAYER_DISPLAY_W = 64;
 const PLAYER_DISPLAY_H = 64;
 const BALL_SIZE = 20;
-const DEFENDER_TINT = 0x1d4ed8;
 const PLAYER_SPEED = 280;
 const BASE_SCROLL_SPEED = 180;
 const SPAWN_INTERVAL_MS = 900;
@@ -128,7 +129,8 @@ const PLAYER_FRAME = 24;
 const PLAYER_SHEET_COLS = 6;
 const PIXIL_PLAYER1_ROW = 1;
 const PIXIL_PLAYER2_ROW = 4;
-const DEFENDER_DOWN_ROW = 0;
+/** ops.png — same 6×5 / 24×24 grid; defender poses sit on row 1 */
+const DEFENDER_ROW = 1;
 const PLAYER1_RUN_FRAMES = Array.from(
   { length: PLAYER_SHEET_COLS },
   (_, i) => PIXIL_PLAYER1_ROW * PLAYER_SHEET_COLS + i,
@@ -139,7 +141,7 @@ const PLAYER2_RUN_FRAMES = Array.from(
 );
 const DEFENDER_RUN_FRAMES = Array.from(
   { length: PLAYER_SHEET_COLS },
-  (_, i) => DEFENDER_DOWN_ROW * PLAYER_SHEET_COLS + i,
+  (_, i) => DEFENDER_ROW * PLAYER_SHEET_COLS + i,
 );
 const PLAYER_ANIM_FPS = 12;
 const ANIM_TIMESCALE_MAX = 1.25;
@@ -201,11 +203,11 @@ export class MainScene extends Phaser.Scene {
       frameWidth: PLAYER_FRAME,
       frameHeight: PLAYER_FRAME,
     });
-    this.load.spritesheet("defender-run-sheet", "/sprites/player-run-16.png", {
+    this.load.spritesheet("defender-run-sheet", "/sprites/ops.png", {
       frameWidth: PLAYER_FRAME,
       frameHeight: PLAYER_FRAME,
     });
-    this.load.spritesheet(ORB_SHEET_KEY, "/sprites/powerups.png", {
+    this.load.spritesheet(ORB_SHEET_KEY, ORB_SHEET_PATH, {
       frameWidth: ORB_FRAME_W,
       frameHeight: ORB_FRAME_H,
     });
@@ -213,6 +215,9 @@ export class MainScene extends Phaser.Scene {
       "pitch-grass",
       "/background/Grass_23-512x512.png",
     );
+    this.load.audio("whistle", "/sounds/whistle.wav");
+    this.load.audio("powerup", "/sounds/powerup.wav");
+    this.load.audio("kill", "/sounds/kill.wav");
   }
 
   create() {
@@ -388,6 +393,8 @@ export class MainScene extends Phaser.Scene {
     this.spawnDefenders();
     this.time.delayedCall(400, () => this.spawnDefenders());
     this.time.delayedCall(1500, () => this.trySpawnOrb());
+
+    this.sound.play("whistle", { volume: getSfxVolume() });
   }
 
   update(_time: number, delta: number) {
@@ -725,6 +732,7 @@ export class MainScene extends Phaser.Scene {
 
     this.activePowerUps.set(runner, { source, expiresAt, timer, aura });
     this.applyRunnerTint(runner);
+    this.sound.play("powerup", { volume: getSfxVolume() });
   }
 
   private updateActivePowerUps() {
@@ -1014,6 +1022,7 @@ export class MainScene extends Phaser.Scene {
     defender.anims.pause();
     this.defenders.killAndHide(defender);
     (defender.body as Phaser.Physics.Arcade.Body).enable = false;
+    this.sound.play("kill", { volume: getSfxVolume() });
     this.scoreManager.awardKill(this.elapsedMs);
     this.creditPlayerBonus(runner, KILL_BONUS_BASE);
 
@@ -1109,7 +1118,7 @@ export class MainScene extends Phaser.Scene {
       .setVisible(true)
       .setDisplaySize(PLAYER_DISPLAY_W, PLAYER_DISPLAY_H)
       .setOrigin(0.5, 0.5)
-      .setTint(DEFENDER_TINT)
+      .clearTint()
       .setDepth(2)
       .play("defender-run");
 

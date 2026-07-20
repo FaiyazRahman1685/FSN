@@ -24,11 +24,18 @@ import {
 import { GameSocket } from "@/game/network/socket";
 import { InputSyncBridge } from "@/game/network/inputSync";
 import { useBackgroundMusic } from "@/hooks/useBackgroundMusic";
-import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import {
+  DEFAULT_MUSIC_VOLUME,
+  DEFAULT_SFX_VOLUME,
+  hydrateAudioVolumes,
+  setMusicVolume,
+  setSfxVolume,
+} from "@/game/audioVolumes";
 import BonusBoard from "./BonusBoard";
 import DeathModal from "./DeathModal";
-import OnlineStatusBar from "./OnlineStatusBar";
+// import OnlineStatusBar from "./OnlineStatusBar";
 import RulesModal from "./RulesModal";
+import VolumeControls from "./VolumeControls";
 
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
 
@@ -54,8 +61,14 @@ function sanitizePlayerName(value: string, fallback: string) {
 }
 
 export default function GameApp() {
-  const { status: onlineStatus } = useOnlineStatus();
-  const onlineAvailable = onlineStatus === "online";
+  // Online multiplayer deferred — backend health polling disabled for now.
+  // const { status: onlineStatus } = useOnlineStatus();
+  // const onlineAvailable = onlineStatus === "online";
+  const onlineStatus = "offline" as const;
+  const onlineAvailable = false;
+
+  const [musicVolume, setMusicVolumeState] = useState(DEFAULT_MUSIC_VOLUME);
+  const [sfxVolume, setSfxVolumeState] = useState(DEFAULT_SFX_VOLUME);
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [playMode, setPlayMode] = useState<PlayMode>("single");
@@ -105,7 +118,23 @@ export default function GameApp() {
   const showOnlineLobby =
     isOnlineMode && phase === "idle" && onlineLobbyPhase !== "none";
 
-  useBackgroundMusic(phase === "playing");
+  useBackgroundMusic(phase === "playing", musicVolume);
+
+  useEffect(() => {
+    const volumes = hydrateAudioVolumes();
+    setMusicVolumeState(volumes.music);
+    setSfxVolumeState(volumes.sfx);
+  }, []);
+
+  const handleMusicVolumeChange = useCallback((value: number) => {
+    setMusicVolume(value);
+    setMusicVolumeState(value);
+  }, []);
+
+  const handleSfxVolumeChange = useCallback((value: number) => {
+    setSfxVolume(value);
+    setSfxVolumeState(value);
+  }, []);
 
   const cleanupOnlineSession = useCallback(async () => {
     socketRef.current?.disconnect();
@@ -389,7 +418,15 @@ export default function GameApp() {
             </p>
           </div>
           <div className="game-header-actions">
+            <VolumeControls
+              musicVolume={musicVolume}
+              sfxVolume={sfxVolume}
+              onMusicVolumeChange={handleMusicVolumeChange}
+              onSfxVolumeChange={handleSfxVolumeChange}
+            />
+            {/* Online multiplayer deferred — hide status bar until backend pinging returns.
             <OnlineStatusBar status={onlineStatus} />
+            */}
             <button
               type="button"
               className="rules-button"
