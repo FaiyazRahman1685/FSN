@@ -9,14 +9,22 @@ import {
   isLocalMultiplayer,
   type SessionSettings,
 } from "../playMode";
+import {
+  circlesGap,
+  circlesOverlap,
+  DEFENDER_VISUAL_RADIUS,
+  getBallVisualRadius,
+  PLAYER_VISUAL_RADIUS,
+} from "../collision";
+import {
+  NEAR_MISS_MARGIN,
+  ScoreManager,
+} from "../scoring";
 
 const PLAYER_DISPLAY_W = 64;
 const PLAYER_DISPLAY_H = 64;
-const PLAYER_BODY_RADIUS = 16;
 const BALL_SIZE = 20;
 const DEFENDER_RADIUS = 20;
-/** Smaller than the sprite so near-misses feel fair */
-const DEFENDER_BODY_RADIUS = 8;
 const PLAYER_SPEED = 280;
 const BASE_SCROLL_SPEED = 180;
 const SPAWN_INTERVAL_MS = 900;
@@ -29,7 +37,6 @@ const STRIPE_DARK = 0x2d8a4e;
 const PLAYER_Y = GAME_HEIGHT - 70;
 const BALL_PASS_SPEED = 1100;
 const BALL_CATCH_DISTANCE = 14;
-const BALL_HIT_RADIUS = BALL_SIZE / 2;
 const PLAYER2_TINT = 0x7dd3fc;
 const POWER_UP_TINT = 0xff3030;
 const POWER_UP_DURATION_MS = 2000;
@@ -55,18 +62,18 @@ export class MainScene extends Phaser.Scene {
   private callbacks!: GameCallbacks;
   private settings!: SessionSettings;
   private localMultiplayer = false;
-  private player!: Phaser.Physics.Arcade.Sprite;
-  private player2?: Phaser.Physics.Arcade.Sprite;
-  private ballHolder!: Phaser.Physics.Arcade.Sprite;
+  private player!: Phaser.GameObjects.Sprite;
+  private player2?: Phaser.GameObjects.Sprite;
+  private ballHolder!: Phaser.GameObjects.Sprite;
   private ball!: Phaser.GameObjects.Sprite;
   private isPassing = false;
-  private powerUpUntil = new Map<Phaser.Physics.Arcade.Sprite, number>();
+  private powerUpUntil = new Map<Phaser.GameObjects.Sprite, number>();
   private powerUpAuras = new Map<
-    Phaser.Physics.Arcade.Sprite,
+    Phaser.GameObjects.Sprite,
     Phaser.GameObjects.Arc
   >();
   private powerUpTimers = new Map<
-    Phaser.Physics.Arcade.Sprite,
+    Phaser.GameObjects.Sprite,
     Phaser.GameObjects.Text
   >();
   private defenders!: Phaser.Physics.Arcade.Group;
@@ -82,6 +89,7 @@ export class MainScene extends Phaser.Scene {
   private nextForcedPassAtMs = FORCED_PASS_START_DELAY_MS;
   private lastReportedSeconds = -1;
   private isGameOver = false;
+  private scoreManager!: ScoreManager;
 
   constructor() {
     super("MainScene");
@@ -112,6 +120,10 @@ export class MainScene extends Phaser.Scene {
     this.elapsedMs = 0;
     this.nextForcedPassAtMs = FORCED_PASS_START_DELAY_MS;
     this.lastReportedSeconds = -1;
+    this.scoreManager = new ScoreManager((score) =>
+      this.callbacks.onScoreChange(score),
+    );
+    this.scoreManager.reset();
     this.scrollSpeed =
       BASE_SCROLL_SPEED *
       DIFFICULTY_SETTINGS[this.difficulty].speedMultiplier;
@@ -183,32 +195,6 @@ export class MainScene extends Phaser.Scene {
       immovable: true,
     });
 
-    this.physics.add.overlap(
-      this.player,
-      this.defenders,
-      (_player, defender) =>
-        this.handlePlayerDefenderCollision(
-          this.player,
-          defender as Phaser.Physics.Arcade.Image,
-        ),
-      undefined,
-      this,
-    );
-    if (this.player2) {
-      const player2 = this.player2;
-      this.physics.add.overlap(
-        player2,
-        this.defenders,
-        (_player, defender) =>
-          this.handlePlayerDefenderCollision(
-            player2,
-            defender as Phaser.Physics.Arcade.Image,
-          ),
-        undefined,
-        this,
-      );
-    }
-
     const keyboard = this.input.keyboard!;
     this.cursors = keyboard.createCursorKeys();
     this.keyA = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
@@ -231,6 +217,7 @@ export class MainScene extends Phaser.Scene {
     if (this.isGameOver) return;
 
     this.elapsedMs += delta;
+    this.scoreManager.addTimePoints(delta, this.elapsedMs);
     const seconds = Math.floor(this.elapsedMs / 100) / 10;
     if (seconds !== this.lastReportedSeconds) {
       this.lastReportedSeconds = seconds;
@@ -251,35 +238,34 @@ export class MainScene extends Phaser.Scene {
     this.player.anims.timeScale = speedScale;
     if (this.player2) this.player2.anims.timeScale = speedScale;
 
-    this.handlePlayerInput(this.player, this.cursors.left, this.cursors.right);
+    this.handlePlayerInput(
+      this.player,
+      this.cursors.left,
+      this.cursors.right,
+      delta,
+    );
     if (this.player2) {
-      this.handlePlayerInput(this.player2, this.keyA, this.keyD);
+      this.handlePlayerInput(this.player2, this.keyA, this.keyD, delta);
     }
 
     this.handlePassInput();
     this.updateBall(delta);
     this.updatePowerUps();
     this.updateDefenders();
+    this.checkPlayerDefenderCollisions();
+    this.checkNearMisses();
   }
 
   private createRunner(x: number) {
-    const runner = this.physics.add.sprite(
+    const runner = this.add.sprite(
       x,
       PLAYER_Y,
       "player-run",
       PLAYER_RUN_FRAMES[0],
     );
     runner.setDisplaySize(PLAYER_DISPLAY_W, PLAYER_DISPLAY_H);
-    runner.setCollideWorldBounds(true);
-    runner.setImmovable(true);
+    runner.setOrigin(0.5, 0.5);
     runner.play("player-run");
-
-    const body = runner.body as Phaser.Physics.Arcade.Body;
-    body.setCircle(PLAYER_BODY_RADIUS);
-    body.setOffset(
-      runner.width / 2 - PLAYER_BODY_RADIUS,
-      runner.height / 2 - PLAYER_BODY_RADIUS + 4,
-    );
     return runner;
   }
 
@@ -308,21 +294,23 @@ export class MainScene extends Phaser.Scene {
   }
 
   private handlePlayerInput(
-    runner: Phaser.Physics.Arcade.Sprite,
+    runner: Phaser.GameObjects.Sprite,
     left: Phaser.Input.Keyboard.Key | undefined,
     right: Phaser.Input.Keyboard.Key | undefined,
+    delta: number,
   ) {
-    const body = runner.body as Phaser.Physics.Arcade.Body;
-    body.setVelocityX(0);
+    const step = (PLAYER_SPEED * delta) / 1000;
 
     if (left?.isDown) {
-      body.setVelocityX(-PLAYER_SPEED);
+      runner.x -= step;
     } else if (right?.isDown) {
-      body.setVelocityX(PLAYER_SPEED);
+      runner.x += step;
     }
 
+    const minX = PITCH_MARGIN + PLAYER_VISUAL_RADIUS;
+    const maxX = GAME_WIDTH - PITCH_MARGIN - PLAYER_VISUAL_RADIUS;
+    runner.x = Phaser.Math.Clamp(Math.round(runner.x), minX, maxX);
     runner.y = PLAYER_Y;
-    body.y = runner.y - runner.displayHeight / 2;
   }
 
   private handlePassInput() {
@@ -339,7 +327,7 @@ export class MainScene extends Phaser.Scene {
     this.ballHolder = receiver;
   }
 
-  private grantPowerUp(runner: Phaser.Physics.Arcade.Sprite) {
+  private grantPowerUp(runner: Phaser.GameObjects.Sprite) {
     this.powerUpUntil.set(runner, this.elapsedMs + POWER_UP_DURATION_MS);
     runner.setTint(POWER_UP_TINT);
 
@@ -397,7 +385,7 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  private removePowerUp(runner: Phaser.Physics.Arcade.Sprite) {
+  private removePowerUp(runner: Phaser.GameObjects.Sprite) {
     this.powerUpUntil.delete(runner);
     const aura = this.powerUpAuras.get(runner);
     if (aura) {
@@ -421,7 +409,7 @@ export class MainScene extends Phaser.Scene {
     );
   }
 
-  private isPlayerPowered(runner: Phaser.Physics.Arcade.Sprite) {
+  private isPlayerPowered(runner: Phaser.GameObjects.Sprite) {
     return (this.powerUpUntil.get(runner) ?? 0) > this.elapsedMs;
   }
 
@@ -431,7 +419,10 @@ export class MainScene extends Phaser.Scene {
 
     if (!this.isPassing) {
       this.cancelPowerUpForBallHolder();
-      this.ball.setPosition(targetX, targetY);
+      this.ball.setPosition(
+        Math.round(targetX),
+        Math.round(targetY),
+      );
       return;
     }
 
@@ -459,7 +450,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private checkPassInterception() {
-    const hitRange = BALL_HIT_RADIUS + DEFENDER_BODY_RADIUS;
+    const ballRadius = getBallVisualRadius(BALL_SIZE);
 
     this.defenders.children.each((child) => {
       if (this.isGameOver) return false;
@@ -467,13 +458,16 @@ export class MainScene extends Phaser.Scene {
       const defender = child as Phaser.Physics.Arcade.Image;
       if (!defender.active) return true;
 
-      const distance = Phaser.Math.Distance.Between(
-        this.ball.x,
-        this.ball.y,
-        defender.x,
-        defender.y,
-      );
-      if (distance <= hitRange) {
+      if (
+        circlesOverlap(
+          this.ball.x,
+          this.ball.y,
+          ballRadius,
+          defender.x,
+          defender.y,
+          DEFENDER_VISUAL_RADIUS,
+        )
+      ) {
         this.endGame();
         return false;
       }
@@ -481,24 +475,46 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  private handlePlayerDefenderCollision(
-    runner: Phaser.Physics.Arcade.Sprite,
-    defender: Phaser.Physics.Arcade.Image,
-  ) {
-    if (!defender.active) return;
+  private checkPlayerDefenderCollisions() {
+    const runners = this.player2 ? [this.player, this.player2] : [this.player];
 
-    if (this.isPlayerPowered(runner)) {
-      this.destroyDefenderWithGlow(defender);
-      return;
-    }
+    this.defenders.children.each((child) => {
+      if (this.isGameOver) return false;
 
-    this.endGame();
+      const defender = child as Phaser.Physics.Arcade.Image;
+      if (!defender.active) return true;
+
+      for (const runner of runners) {
+        if (
+          !circlesOverlap(
+            runner.x,
+            runner.y,
+            PLAYER_VISUAL_RADIUS,
+            defender.x,
+            defender.y,
+            DEFENDER_VISUAL_RADIUS,
+          )
+        ) {
+          continue;
+        }
+
+        if (this.isPlayerPowered(runner)) {
+          this.destroyDefenderWithGlow(defender);
+        } else {
+          this.endGame();
+        }
+        return false;
+      }
+
+      return true;
+    });
   }
 
   private destroyDefenderWithGlow(defender: Phaser.Physics.Arcade.Image) {
     const { x, y } = defender;
     this.defenders.killAndHide(defender);
     (defender.body as Phaser.Physics.Arcade.Body).enable = false;
+    this.scoreManager.awardKill(this.elapsedMs);
 
     const glow = this.add
       .circle(x, y, DEFENDER_RADIUS, 0xfff3b0, 0.9)
@@ -588,10 +604,11 @@ export class MainScene extends Phaser.Scene {
 
     defender.setActive(true).setVisible(true);
     const body = defender.body as Phaser.Physics.Arcade.Body;
-    body.setCircle(DEFENDER_BODY_RADIUS);
+    const sourceRadius = DEFENDER_VISUAL_RADIUS / defender.scaleX;
+    body.setCircle(sourceRadius);
     body.setOffset(
-      DEFENDER_RADIUS - DEFENDER_BODY_RADIUS,
-      DEFENDER_RADIUS - DEFENDER_BODY_RADIUS,
+      DEFENDER_RADIUS - sourceRadius,
+      DEFENDER_RADIUS - sourceRadius,
     );
     body.setAllowGravity(false);
     body.setVelocity(0, this.scrollSpeed);
@@ -613,6 +630,36 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
+  private checkNearMisses() {
+    const runners = this.player2 ? [this.player, this.player2] : [this.player];
+
+    this.defenders.children.each((child) => {
+      const defender = child as Phaser.Physics.Arcade.Image;
+      if (!defender.active || defender.getData("nearMissAwarded")) {
+        return true;
+      }
+
+      for (const runner of runners) {
+        const gap = circlesGap(
+          runner.x,
+          runner.y,
+          PLAYER_VISUAL_RADIUS,
+          defender.x,
+          defender.y,
+          DEFENDER_VISUAL_RADIUS,
+        );
+
+        if (gap > 0 && gap <= NEAR_MISS_MARGIN) {
+          defender.setData("nearMissAwarded", true);
+          this.scoreManager.awardNearMiss(this.elapsedMs);
+          break;
+        }
+      }
+
+      return true;
+    });
+  }
+
   private endGame() {
     if (this.isGameOver) return;
     this.isGameOver = true;
@@ -625,8 +672,10 @@ export class MainScene extends Phaser.Scene {
     this.player.anims.pause();
     this.player2?.anims.pause();
 
+    this.scoreManager.finalizeStreak();
+
     const seconds = Math.floor(this.elapsedMs / 100) / 10;
     this.callbacks.onTick(seconds);
-    this.callbacks.onGameOver(seconds);
+    this.callbacks.onGameOver(seconds, this.scoreManager.getFinalScore());
   }
 }

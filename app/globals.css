@@ -107,6 +107,14 @@ body {
   justify-content: center;
 }
 
+.hud-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem 2rem;
+}
+
 .game-button {
   appearance: none;
   border: none;
@@ -136,6 +144,27 @@ body {
   font-weight: 700;
 }
 
+.score-display {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.25rem;
+  color: var(--muted);
+}
+
+.score-value {
+  color: #7ee787;
+  font-weight: 700;
+}
+
+.gameover-score {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+
+.gameover-score strong {
+  color: #7ee787;
+}
+
 .gameover {
   display: flex;
   flex-direction: column;
@@ -149,6 +178,7 @@ body {
 }
 
 .canvas-wrap {
+  position: relative;
   width: min(800px, 100%);
   aspect-ratio: 800 / 600;
   background: var(--panel);
@@ -159,6 +189,76 @@ body {
   align-items: center;
   justify-content: center;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+.bonus-board {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fde047, #facc15);
+  color: #1a1200;
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.bonus-board--in {
+  animation: bonus-board-in 0.28s cubic-bezier(0.22, 1.1, 0.36, 1);
+}
+
+.bonus-board--pop {
+  animation: bonus-board-pop 0.48s cubic-bezier(0.22, 1.25, 0.36, 1);
+}
+
+.bonus-board-label {
+  text-transform: uppercase;
+}
+
+.bonus-board-points {
+  font-variant-numeric: tabular-nums;
+}
+
+.bonus-board-multiplier {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.12);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes bonus-board-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@keyframes bonus-board-pop {
+  0% {
+    transform: translateX(-50%) scale(1) translateY(0);
+  }
+  30% {
+    transform: translateX(-50%) scale(1.18) translateY(-8px);
+  }
+  55% {
+    transform: translateX(-50%) scale(1.06) translateY(-3px);
+  }
+  100% {
+    transform: translateX(-50%) scale(1) translateY(0);
+  }
 }
 
 .canvas-placeholder {

@@ -14,16 +14,19 @@ export default function GameCanvas({
   sessionId,
   settings,
   onTick,
+  onScoreChange,
   onGameOver,
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const onTickRef = useRef(onTick);
+  const onScoreChangeRef = useRef(onScoreChange);
   const onGameOverRef = useRef(onGameOver);
 
   useEffect(() => {
     onTickRef.current = onTick;
+    onScoreChangeRef.current = onScoreChange;
     onGameOverRef.current = onGameOver;
-  }, [onTick, onGameOver]);
+  }, [onTick, onScoreChange, onGameOver]);
 
   useEffect(() => {
     const parent = containerRef.current;
@@ -34,7 +37,8 @@ export default function GameCanvas({
 
     const callbacks: GameCallbacks = {
       onTick: (seconds) => onTickRef.current(seconds),
-      onGameOver: (seconds) => onGameOverRef.current(seconds),
+      onScoreChange: (score) => onScoreChangeRef.current(score),
+      onGameOver: (seconds, score) => onGameOverRef.current(seconds, score),
     };
 
     (async () => {

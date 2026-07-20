@@ -4,11 +4,20 @@ import dynamic from "next/dynamic";
 import { useCallback, useMemo, useState } from "react";
 import type { Difficulty } from "@/game/difficulty";
 import type { MultiplayerKind, PlayMode } from "@/game/playMode";
+import type { GameScoreState } from "@/game/scoring";
+import BonusBoard from "./BonusBoard";
 
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
 
 type Phase = "idle" | "playing" | "gameover";
 const DIFFICULTIES: Difficulty[] = ["easy", "medium", "hard"];
+
+const INITIAL_SCORE: GameScoreState = {
+  total: 0,
+  streak: 0,
+  multiplier: 1,
+  bonusBoard: null,
+};
 
 export default function GameApp() {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -24,6 +33,8 @@ export default function GameApp() {
   const [sessionId, setSessionId] = useState(0);
   const [seconds, setSeconds] = useState(0);
   const [finalSeconds, setFinalSeconds] = useState(0);
+  const [score, setScore] = useState<GameScoreState>(INITIAL_SCORE);
+  const [finalScore, setFinalScore] = useState(0);
 
   const controlsLocked = phase === "playing";
   const isLocalCoop =
@@ -33,6 +44,8 @@ export default function GameApp() {
   const startGame = useCallback(() => {
     setSeconds(0);
     setFinalSeconds(0);
+    setScore(INITIAL_SCORE);
+    setFinalScore(0);
     setActiveSettings({ playMode, multiplayerKind, difficulty });
     setSessionId((id) => id + 1);
     setPhase("playing");
@@ -42,9 +55,15 @@ export default function GameApp() {
     setSeconds(value);
   }, []);
 
-  const handleGameOver = useCallback((value: number) => {
+  const handleScoreChange = useCallback((value: GameScoreState) => {
+    setScore(value);
+  }, []);
+
+  const handleGameOver = useCallback((value: number, points: number) => {
     setFinalSeconds(value);
+    setFinalScore(points);
     setSeconds(value);
+    setScore((current) => ({ ...current, total: points, bonusBoard: null }));
     setPhase("gameover");
   }, []);
 
@@ -124,8 +143,14 @@ export default function GameApp() {
         )}
 
         {phase === "playing" && (
-          <div className="timer" aria-live="polite">
-            Time: <span className="timer-value">{seconds.toFixed(1)}s</span>
+          <div className="hud-stats" aria-live="polite">
+            <div className="timer">
+              Time: <span className="timer-value">{seconds.toFixed(1)}s</span>
+            </div>
+            <div className="score-display">
+              Score:{" "}
+              <span className="score-value">{score.total.toLocaleString()}</span>
+            </div>
           </div>
         )}
 
@@ -133,6 +158,10 @@ export default function GameApp() {
           <div className="gameover">
             <p className="gameover-text">
               Survived <strong>{finalSeconds.toFixed(1)}s</strong>
+            </p>
+            <p className="gameover-score">
+              Final score:{" "}
+              <strong>{finalScore.toLocaleString()}</strong> pts
             </p>
             <button type="button" className="game-button" onClick={startGame}>
               Restart
@@ -145,12 +174,16 @@ export default function GameApp() {
         {phase === "idle" ? (
           <div className="canvas-placeholder">{placeholder}</div>
         ) : (
-          <GameCanvas
-            sessionId={sessionId}
-            settings={activeSettings}
-            onTick={handleTick}
-            onGameOver={handleGameOver}
-          />
+          <>
+            <BonusBoard bonusBoard={score.bonusBoard} />
+            <GameCanvas
+              sessionId={sessionId}
+              settings={activeSettings}
+              onTick={handleTick}
+              onScoreChange={handleScoreChange}
+              onGameOver={handleGameOver}
+            />
+          </>
         )}
       </div>
 
