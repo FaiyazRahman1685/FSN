@@ -43,6 +43,7 @@ import {
   type OrbPowerUpType,
 } from "../orbPowerUps";
 import { getSfxVolume } from "../audioVolumes";
+import { waitForKickoffGate } from "../kickoffGate";
 import { createRng, type GameRng } from "../rng";
 import {
   InputSyncBridge,
@@ -172,6 +173,7 @@ export class MainScene extends Phaser.Scene {
   private difficulty: Difficulty = "easy";
   private defenderNationality: DefenderNationality = "argentina";
   private defenderRunFrames: number[] = [];
+  private isCountingDown = false;
   private scrollSpeed = BASE_SCROLL_SPEED;
   private spawnTimer?: Phaser.Time.TimerEvent;
   private orbSpawnTimer?: Phaser.Time.TimerEvent;
@@ -253,6 +255,7 @@ export class MainScene extends Phaser.Scene {
     }
     this.isGameOver = false;
     this.isPassing = false;
+    this.isCountingDown = false;
     this.orbs.forEach((orb) => orb.destroy());
     this.orbs = [];
     this.elapsedMs = 0;
@@ -372,6 +375,9 @@ export class MainScene extends Phaser.Scene {
     this.player.setDepth(2);
     this.player2?.setDepth(2);
     this.ball.play("ball-roll");
+    this.ball.anims.pause();
+    this.player.anims.pause();
+    this.player2?.anims.pause();
 
     this.defenders = this.physics.add.group({
       classType: Phaser.Physics.Arcade.Sprite,
@@ -385,6 +391,34 @@ export class MainScene extends Phaser.Scene {
     this.keyD = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
     this.keyEnter = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
     this.keySpace = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+    this.beginKickoffCountdown();
+  }
+
+  private beginKickoffCountdown() {
+    this.isCountingDown = true;
+
+    // Safety net if the overlay unmounts without releasing the gate.
+    const fallback = this.time.delayedCall(4500, () => {
+      if (this.isCountingDown && !this.isGameOver) {
+        this.finishKickoff();
+      }
+    });
+
+    void waitForKickoffGate().then(() => {
+      fallback.remove(false);
+      if (!this.sys.isActive() || this.isGameOver) return;
+      this.finishKickoff();
+    });
+  }
+
+  private finishKickoff() {
+    if (this.isGameOver || !this.isCountingDown) return;
+    this.isCountingDown = false;
+
+    this.player.anims.resume();
+    this.player2?.anims.resume();
+    this.ball.anims.resume();
 
     this.spawnTimer = this.time.addEvent({
       delay: SPAWN_INTERVAL_MS,
@@ -408,7 +442,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    if (this.isGameOver) return;
+    if (this.isGameOver || this.isCountingDown) return;
 
     if (this.onlineMultiplayer) {
       this.simAccumulator += delta;
@@ -423,7 +457,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   private simStep(delta: number) {
-    if (this.isGameOver) return;
+    if (this.isGameOver || this.isCountingDown) return;
 
     this.elapsedMs += delta;
     this.addTimePointsForPlayers(delta);
@@ -1203,6 +1237,7 @@ export class MainScene extends Phaser.Scene {
     if (this.isGameOver) return;
     this.isGameOver = true;
     this.isPassing = false;
+    this.isCountingDown = false;
     this.sound.play("gameover", { volume: getSfxVolume() });
 
     this.spawnTimer?.remove(false);

@@ -28,12 +28,17 @@ export default function GameCanvas({
   const onScoreChangeRef = useRef(onScoreChange);
   const onGameOverRef = useRef(onGameOver);
   const bridgeRef = useRef(inputSyncBridge);
+  const settingsRef = useRef(settings);
 
   useEffect(() => {
     onTickRef.current = onTick;
     onScoreChangeRef.current = onScoreChange;
     onGameOverRef.current = onGameOver;
   }, [onTick, onScoreChange, onGameOver]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
     bridgeRef.current = inputSyncBridge ?? null;
@@ -62,7 +67,12 @@ export default function GameCanvas({
 
       parent.replaceChildren();
       game = new Phaser.Game(
-        createGameConfig(parent, callbacks, settings, bridgeRef.current ?? undefined),
+        createGameConfig(
+          parent,
+          callbacks,
+          settingsRef.current,
+          bridgeRef.current ?? undefined,
+        ),
       );
     })();
 
@@ -72,7 +82,7 @@ export default function GameCanvas({
       game = null;
       parent.replaceChildren();
     };
-  }, [sessionId, settings]);
+  }, [sessionId]);
 
   return (
     <div
