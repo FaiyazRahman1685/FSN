@@ -3,8 +3,8 @@ import Phaser from "phaser";
 /** Display-pixel radius of the visible player character (not the full 64×64 frame). */
 export const PLAYER_VISUAL_RADIUS = 11;
 
-/** Matches the drawn defender circle texture radius. */
-export const DEFENDER_VISUAL_RADIUS = 20;
+/** Same hitbox as the player — defenders use the player sprite. */
+export const DEFENDER_VISUAL_RADIUS = PLAYER_VISUAL_RADIUS;
 
 export function getBallVisualRadius(ballDisplaySize: number) {
   return ballDisplaySize / 2;

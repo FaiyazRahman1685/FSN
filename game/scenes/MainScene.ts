@@ -24,16 +24,13 @@ import {
 const PLAYER_DISPLAY_W = 64;
 const PLAYER_DISPLAY_H = 64;
 const BALL_SIZE = 20;
-const DEFENDER_RADIUS = 20;
+const DEFENDER_TINT = 0x1d4ed8;
 const PLAYER_SPEED = 280;
 const BASE_SCROLL_SPEED = 180;
 const SPAWN_INTERVAL_MS = 900;
 const PITCH_MARGIN = 36;
 const FORCED_PASS_START_DELAY_MS = 3000;
 const FORCED_PASS_DEFENDER_GAP = 4;
-const STRIPE_WIDTH = 50;
-const STRIPE_LIGHT = 0x3a9b5c;
-const STRIPE_DARK = 0x2d8a4e;
 const PLAYER_Y = GAME_HEIGHT - 70;
 const BALL_PASS_SPEED = 1100;
 const BALL_CATCH_DISTANCE = 14;
@@ -51,9 +48,14 @@ const BALL_ANIM_FPS = 12;
 const PLAYER_FRAME = 24;
 const PLAYER_SHEET_COLS = 6;
 const PLAYER_UP_ROW = 4;
+const PLAYER_DOWN_ROW = 0;
 const PLAYER_RUN_FRAMES = Array.from(
   { length: PLAYER_SHEET_COLS },
   (_, i) => PLAYER_UP_ROW * PLAYER_SHEET_COLS + i,
+);
+const DEFENDER_RUN_FRAMES = Array.from(
+  { length: PLAYER_SHEET_COLS },
+  (_, i) => PLAYER_DOWN_ROW * PLAYER_SHEET_COLS + i,
 );
 const PLAYER_ANIM_FPS = 12;
 const ANIM_TIMESCALE_MAX = 1.25;
@@ -105,6 +107,10 @@ export class MainScene extends Phaser.Scene {
       frameWidth: PLAYER_FRAME,
       frameHeight: PLAYER_FRAME,
     });
+    this.load.image(
+      "pitch-grass",
+      "/background/Grass_23-512x512.png",
+    );
   }
 
   create() {
@@ -140,11 +146,10 @@ export class MainScene extends Phaser.Scene {
       0.35,
     );
 
-    this.createCircleTexture("defender", DEFENDER_RADIUS, 0x1d4ed8);
-
     // Nearest-neighbor sampling (belt-and-suspenders with pixelArt: true)
     this.textures.get("player-run").setFilter(Phaser.Textures.FilterMode.NEAREST);
     this.textures.get("football").setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.textures.get("pitch-grass").setFilter(Phaser.Textures.FilterMode.LINEAR);
 
     if (!this.anims.exists("ball-roll")) {
       this.anims.create({
@@ -162,6 +167,17 @@ export class MainScene extends Phaser.Scene {
         key: "player-run",
         frames: this.anims.generateFrameNumbers("player-run", {
           frames: PLAYER_RUN_FRAMES,
+        }),
+        frameRate: PLAYER_ANIM_FPS,
+        repeat: -1,
+      });
+    }
+
+    if (!this.anims.exists("defender-run")) {
+      this.anims.create({
+        key: "defender-run",
+        frames: this.anims.generateFrameNumbers("player-run", {
+          frames: DEFENDER_RUN_FRAMES,
         }),
         frameRate: PLAYER_ANIM_FPS,
         repeat: -1,
@@ -191,6 +207,7 @@ export class MainScene extends Phaser.Scene {
     this.ball.play("ball-roll");
 
     this.defenders = this.physics.add.group({
+      classType: Phaser.Physics.Arcade.Sprite,
       allowGravity: false,
       immovable: true,
     });
@@ -270,27 +287,15 @@ export class MainScene extends Phaser.Scene {
   }
 
   private drawPitch() {
-    const stripeCount = Math.ceil(GAME_WIDTH / STRIPE_WIDTH);
-    for (let i = 0; i < stripeCount; i++) {
-      const color = i % 2 === 0 ? STRIPE_DARK : STRIPE_LIGHT;
-      this.add.rectangle(
-        i * STRIPE_WIDTH + STRIPE_WIDTH / 2,
-        GAME_HEIGHT / 2,
-        STRIPE_WIDTH,
-        GAME_HEIGHT,
-        color,
-      );
-    }
-  }
-
-  private createCircleTexture(key: string, radius: number, color: number) {
-    if (this.textures.exists(key)) return;
-    const size = radius * 2;
-    const g = this.make.graphics({ x: 0, y: 0 });
-    g.fillStyle(color, 1);
-    g.fillCircle(radius, radius, radius);
-    g.generateTexture(key, size, size);
-    g.destroy();
+    const pitch = this.add.tileSprite(
+      0,
+      0,
+      GAME_WIDTH,
+      GAME_HEIGHT,
+      "pitch-grass",
+    );
+    pitch.setOrigin(0, 0);
+    pitch.setDepth(-10);
   }
 
   private handlePlayerInput(
@@ -455,7 +460,7 @@ export class MainScene extends Phaser.Scene {
     this.defenders.children.each((child) => {
       if (this.isGameOver) return false;
 
-      const defender = child as Phaser.Physics.Arcade.Image;
+      const defender = child as Phaser.Physics.Arcade.Sprite;
       if (!defender.active) return true;
 
       if (
@@ -481,7 +486,7 @@ export class MainScene extends Phaser.Scene {
     this.defenders.children.each((child) => {
       if (this.isGameOver) return false;
 
-      const defender = child as Phaser.Physics.Arcade.Image;
+      const defender = child as Phaser.Physics.Arcade.Sprite;
       if (!defender.active) return true;
 
       for (const runner of runners) {
@@ -510,14 +515,15 @@ export class MainScene extends Phaser.Scene {
     });
   }
 
-  private destroyDefenderWithGlow(defender: Phaser.Physics.Arcade.Image) {
+  private destroyDefenderWithGlow(defender: Phaser.Physics.Arcade.Sprite) {
     const { x, y } = defender;
+    defender.anims.pause();
     this.defenders.killAndHide(defender);
     (defender.body as Phaser.Physics.Arcade.Body).enable = false;
     this.scoreManager.awardKill(this.elapsedMs);
 
     const glow = this.add
-      .circle(x, y, DEFENDER_RADIUS, 0xfff3b0, 0.9)
+      .circle(x, y, PLAYER_VISUAL_RADIUS, 0xfff3b0, 0.9)
       .setDepth(4)
       .setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({
@@ -534,7 +540,7 @@ export class MainScene extends Phaser.Scene {
     if (this.isGameOver) return;
 
     const settings = DIFFICULTY_SETTINGS[this.difficulty];
-    const spawnY = -DEFENDER_RADIUS - 10;
+    const spawnY = -PLAYER_DISPLAY_H / 2 - 10;
 
     if (this.shouldSpawnForcedPassWall(settings.forcedPassChance)) {
       this.spawnForcedPassWall(
@@ -568,7 +574,7 @@ export class MainScene extends Phaser.Scene {
     defenderCount: number,
     cooldownMs: number,
   ) {
-    const spacing = DEFENDER_RADIUS * 2 + FORCED_PASS_DEFENDER_GAP;
+    const spacing = PLAYER_DISPLAY_W + FORCED_PASS_DEFENDER_GAP;
     const halfWidth = ((defenderCount - 1) * spacing) / 2;
     const centerX = Phaser.Math.Clamp(
       this.ball.x,
@@ -587,7 +593,7 @@ export class MainScene extends Phaser.Scene {
     const pitchWidth = GAME_WIDTH - PITCH_MARGIN * 2;
     const laneWidth = pitchWidth / laneCount;
     const laneStart = PITCH_MARGIN + lane * laneWidth;
-    const padding = DEFENDER_RADIUS;
+    const padding = PLAYER_VISUAL_RADIUS;
 
     return Phaser.Math.Between(
       Math.ceil(laneStart + padding),
@@ -599,30 +605,41 @@ export class MainScene extends Phaser.Scene {
     const defender = this.defenders.create(
       x,
       y,
-      "defender",
-    ) as Phaser.Physics.Arcade.Image;
+      "player-run",
+      DEFENDER_RUN_FRAMES[0],
+    ) as Phaser.Physics.Arcade.Sprite;
 
-    defender.setActive(true).setVisible(true);
+    defender
+      .setActive(true)
+      .setVisible(true)
+      .setDisplaySize(PLAYER_DISPLAY_W, PLAYER_DISPLAY_H)
+      .setOrigin(0.5, 0.5)
+      .setTint(DEFENDER_TINT)
+      .setDepth(2)
+      .play("defender-run");
+
     const body = defender.body as Phaser.Physics.Arcade.Body;
-    const sourceRadius = DEFENDER_VISUAL_RADIUS / defender.scaleX;
-    body.setCircle(sourceRadius);
-    body.setOffset(
-      DEFENDER_RADIUS - sourceRadius,
-      DEFENDER_RADIUS - sourceRadius,
-    );
+    body.setCircle(PLAYER_VISUAL_RADIUS / defender.scaleX);
     body.setAllowGravity(false);
     body.setVelocity(0, this.scrollSpeed);
   }
 
   private updateDefenders() {
+    const speedScale = Math.min(
+      this.scrollSpeed / BASE_SCROLL_SPEED,
+      ANIM_TIMESCALE_MAX,
+    );
+
     this.defenders.children.each((child) => {
-      const defender = child as Phaser.Physics.Arcade.Image;
+      const defender = child as Phaser.Physics.Arcade.Sprite;
       if (!defender.active) return true;
 
       const body = defender.body as Phaser.Physics.Arcade.Body;
       body.setVelocityY(this.scrollSpeed);
+      defender.anims.timeScale = speedScale;
 
-      if (defender.y > GAME_HEIGHT + DEFENDER_RADIUS + 40) {
+      if (defender.y > GAME_HEIGHT + PLAYER_DISPLAY_H / 2 + 40) {
+        defender.anims.pause();
         this.defenders.killAndHide(defender);
         body.enable = false;
       }
@@ -631,15 +648,20 @@ export class MainScene extends Phaser.Scene {
   }
 
   private checkNearMisses() {
+    if (this.isGameOver) return;
+
     const runners = this.player2 ? [this.player, this.player2] : [this.player];
 
     this.defenders.children.each((child) => {
-      const defender = child as Phaser.Physics.Arcade.Image;
+      const defender = child as Phaser.Physics.Arcade.Sprite;
       if (!defender.active || defender.getData("nearMissAwarded")) {
         return true;
       }
 
       for (const runner of runners) {
+        // Only count a near miss once the defender has scrolled past the player.
+        if (defender.y <= runner.y) continue;
+
         const gap = circlesGap(
           runner.x,
           runner.y,
@@ -671,6 +693,10 @@ export class MainScene extends Phaser.Scene {
     this.ball.anims.pause();
     this.player.anims.pause();
     this.player2?.anims.pause();
+    this.defenders.children.each((child) => {
+      (child as Phaser.Physics.Arcade.Sprite).anims.pause();
+      return true;
+    });
 
     this.scoreManager.finalizeStreak();
 
